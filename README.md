@@ -152,25 +152,52 @@ Para parar: `docker compose down`.
 
 ---
 
-## 8. Acessar de outros aparelhos na rede de casa
+## 8. Acessar de outros aparelhos e instalar como app
 
-Para abrir o app no celular ou no notebook da sua esposa, pela mesma rede wifi:
+O app funciona de três formas com o **mesmo código**: janela própria no PC, site
+no navegador e ícone (tela cheia) no celular. Para o PC e o iPhone dá para usar
+em `http` simples; o **Android** exige `https`, e é por isso que existe o passo
+dos certificados.
 
-1. Descubra o **IP local** da máquina onde o app roda:
-   - Windows: `ipconfig` (procure "Endereço IPv4", ex: `192.168.0.10`)
-   - Mac/Linux: `ipconfig getifaddr en0` ou `hostname -I`
+### Jeito rápido (só ver no navegador de outro aparelho, sem instalar)
+
+1. Descubra o **IP local**: no Windows, `ipconfig` (procure "Endereço IPv4").
 2. No `.env`, troque `NEXTAUTH_URL` para esse IP, ex:
    `NEXTAUTH_URL="http://192.168.0.10:3000"`
-3. Rode o app assim (para ele aceitar conexões da rede, não só do próprio PC):
+3. Rode aceitando conexões da rede:
    ```bash
    npm run build
    npx next start -H 0.0.0.0 -p 3000
    ```
-   (No Docker isso já está liberado por padrão.)
 4. Nos outros aparelhos, acesse `http://192.168.0.10:3000`.
 
-> Se o navegador não abrir, provavelmente é o **firewall** do sistema bloqueando a
-> porta 3000 — libere-a para a rede local.
+> Se não abrir, provavelmente é o **firewall** bloqueando a porta — libere-a para
+> a rede local.
+
+### Instalar como app de verdade (ícone no PC e no celular, com https)
+
+Isso deixa o app com ícone próprio, abrindo em janela/tela cheia, e permite a
+instalação no Android. Passo a passo completo, com as pegadinhas de cada aparelho:
+
+**➡️ [docs/INSTALAR-COMO-APP.md](docs/INSTALAR-COMO-APP.md)**
+
+Em resumo, uma vez só:
+
+```bash
+npm run build            # versão final
+npm run certificados     # cria os certificados do https local (pasta certs/)
+npm run start:https      # sobe o app em https://SEU-IP:3443
+```
+
+E, opcionalmente, para o servidor subir sozinho junto com o Windows:
+
+```powershell
+.\scripts\inicializacao.ps1 -Acao instalar
+```
+
+> Ao usar https, **todos** os aparelhos (inclusive o PC) acessam pelo mesmo
+> endereço (`https://SEU-IP:3443`) e o `.env` fica com
+> `NEXTAUTH_URL="https://SEU-IP:3443"`. O guia explica por quê.
 
 ---
 
@@ -267,9 +294,18 @@ nossas-financas/
 │  │  ├─ schemas.ts        # regras de validação (zod) dos corpos de requisição
 │  │  ├─ http.ts           # cliente das telas (mostra o erro que a API devolve)
 │  │  └─ pluggy.ts         # integração Open Finance
-│  └─ components/          # navbar etc.
+│  ├─ components/          # navbar, banner de erro, registro do service worker
+│  └─ app/globals.css      # ajustes de PWA (tela cheia, notch do iPhone)
+├─ public/                 # manifest, ícones e service worker do app instalável
+├─ docs/INSTALAR-COMO-APP.md  # guia passo a passo de instalar no PC e celular
 ├─ scripts/seed.ts         # usuários, entidades e categorias iniciais
 ├─ scripts/check-node.mjs  # avisa se o Node for anterior ao 22.5
+├─ scripts/gerar-icones.mjs        # gera os ícones do app (npm run icones)
+├─ scripts/gerar-certificados.mjs  # certificados do https local (npm run certificados)
+├─ scripts/servidor-https.mjs      # sobe o app em https (npm run start:https)
+├─ scripts/inicializacao.ps1       # liga/desliga o start automático no Windows
+├─ scripts/win/            # lançadores usados pelo start automático
+├─ certs/                  # certificados gerados (ignorado pelo git)
 ├─ data/app.db             # seu banco (criado no primeiro uso; faça backup dele)
 ├─ Dockerfile / docker-compose.yml
 └─ .env                    # suas credenciais (NÃO compartilhar)

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 
 const links = [
@@ -16,7 +16,18 @@ const links = [
 
 export default function NavBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
+
+  // Faz o logout e volta para o login pela mesma origem em que o usuario esta.
+  // Se deixassemos o NextAuth redirecionar sozinho (redirect padrao), ele usaria
+  // o endereco fixo do NEXTAUTH_URL - o que jogaria o celular para o "localhost"
+  // do proprio aparelho. Com redirect:false + router.push, o retorno acompanha
+  // quem esta acessando (PC ou celular).
+  async function sair() {
+    await signOut({ redirect: false });
+    router.push("/login");
+  }
 
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -39,7 +50,7 @@ export default function NavBar() {
         <div className="flex items-center gap-3 text-sm text-slate-600">
           {session?.user?.name && <span>Ola, {session.user.name}</span>}
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={sair}
             className="text-slate-500 hover:text-slate-800"
           >
             Sair
