@@ -170,8 +170,9 @@ export default function ContasPage() {
           </section>
         )}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
+        {/* No celular a tabela rola na horizontal em vez de espremer as colunas. */}
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[600px] text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
               <tr>
                 <th className="px-4 py-2">Conta</th>

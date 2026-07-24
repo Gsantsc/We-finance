@@ -14,6 +14,7 @@
     "start": "next start",
     "preseed": "node scripts/check-node.mjs",
     "seed": "tsx scripts/seed.ts",
+    "icones": "node scripts/gerar-icones.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

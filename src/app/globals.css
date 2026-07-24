@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Ajustes para quando o app roda instalado (janela propria no PC, tela cheia
+   no celular) em vez de dentro de uma aba do navegador. */
+
+html {
+  /* Evita o iOS aumentar a fonte sozinho ao virar a tela. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* Respeita o notch / barra inferior do iPhone em tela cheia. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Instalado, a area do topo do iPhone fica por conta do app. */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Sem o flash cinza ao tocar em botao/link no celular. */
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}

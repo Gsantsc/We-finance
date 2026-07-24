@@ -7,3 +7,12 @@ data/
 *.db-shm
 .env
 .DS_Store
+
+# Certificados do HTTPS local. A chave privada da CA assina certificados que os
+# seus aparelhos passam a confiar - se ela vazar, quem tiver a chave consegue se
+# passar por qualquer site para esses aparelhos. Nunca versionar.
+certs/
+*.pem
+*.key
+*.crt
+*.p12
