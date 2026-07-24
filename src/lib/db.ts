@@ -9,12 +9,49 @@ import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 
+function defaultDbPath(): string {
+  // Por padrao o banco fica FORA de pastas sincronizadas na nuvem. Este projeto
+  // costuma ficar dentro do OneDrive; deixar o SQLite (em modo WAL, escrevendo o
+  // tempo todo com o servidor ligado) sincronizar para a nuvem pode corromper o
+  // arquivo. No Windows usamos a pasta de dados do usuario; nos demais sistemas
+  // (e no Docker, que define DATABASE_PATH), seguimos com a pasta data/.
+  if (process.platform === "win32" && process.env.LOCALAPPDATA) {
+    return path.join(process.env.LOCALAPPDATA, "nossas-financas", "app.db");
+  }
+  return path.join(process.cwd(), "data", "app.db");
+}
+
+// Move um banco que ja exista na antiga pasta data/ para o novo local padrao,
+// sem perder nada. So age quando: nao ha DATABASE_PATH definido, o banco novo
+// ainda nao existe, e existe um banco antigo. Nunca sobrescreve.
+function migrarBancoAntigoSePreciso(fromEnv: string | undefined, destino: string) {
+  if (fromEnv && fromEnv.trim().length > 0) return;
+  const antigo = path.join(process.cwd(), "data", "app.db");
+  if (path.resolve(antigo) === path.resolve(destino)) return;
+  if (fs.existsSync(destino)) return;
+  if (!fs.existsSync(antigo)) return;
+
+  // Move o banco e os arquivos auxiliares do WAL juntos (o -wal pode conter
+  // dados ainda nao gravados no arquivo principal).
+  for (const sufixo of ["", "-wal", "-shm"]) {
+    const de = antigo + sufixo;
+    const para = destino + sufixo;
+    if (!fs.existsSync(de)) continue;
+    try {
+      fs.renameSync(de, para);
+    } catch {
+      fs.copyFileSync(de, para);
+      try { fs.rmSync(de); } catch {}
+    }
+  }
+  console.log(`[nossas-financas] Banco movido para fora do OneDrive: ${destino}`);
+}
+
 function resolveDbPath(): string {
   const fromEnv = process.env.DATABASE_PATH;
-  const file = fromEnv && fromEnv.trim().length > 0
-    ? fromEnv
-    : path.join(process.cwd(), "data", "app.db");
+  const file = fromEnv && fromEnv.trim().length > 0 ? fromEnv : defaultDbPath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  migrarBancoAntigoSePreciso(fromEnv, file);
   return file;
 }
 

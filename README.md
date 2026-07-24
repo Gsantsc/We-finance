@@ -203,15 +203,28 @@ E, opcionalmente, para o servidor subir sozinho junto com o Windows:
 
 ## 9. Backup dos dados
 
-Tudo fica em **um único arquivo**: `data/app.db`.
-Para fazer backup, é só copiá-lo (com o app parado, de preferência):
+Tudo fica em **um único arquivo**. Por padrão ele fica **fora do OneDrive** (para
+a sincronização na nuvem não corromper o banco enquanto o app escreve nele):
 
-```bash
-cp data/app.db "backup-financas-$(date +%Y%m%d).db"
+- **Windows:** `%LOCALAPPDATA%\nossas-financas\app.db`
+  (normalmente `C:\Users\SEU-USUARIO\AppData\Local\nossas-financas\app.db`)
+- **Outros / Docker:** `./data/app.db`
+
+> Se você já tinha um banco na antiga pasta `data/`, o app **move sozinho** para o
+> novo local na primeira vez que roda — sem perder nada.
+
+Para fazer backup, copie esse arquivo (com o app parado, de preferência). No
+Windows (PowerShell):
+
+```powershell
+Copy-Item "$env:LOCALAPPDATA\nossas-financas\app.db" "$HOME\Desktop\backup-financas-$(Get-Date -Format yyyyMMdd).db"
 ```
 
-Guarde essa cópia num lugar seguro (pen drive, HD externo). Restaurar = colocar o
-arquivo de volta em `data/app.db`.
+Guarde a cópia num lugar seguro (pen drive, HD externo). Restaurar = colocar o
+arquivo de volta no mesmo caminho.
+
+> Quer manter o banco noutro lugar? Defina `DATABASE_PATH` no `.env` com o caminho
+> que preferir.
 
 ---
 
@@ -306,7 +319,8 @@ nossas-financas/
 ├─ scripts/inicializacao.ps1       # liga/desliga o start automático no Windows
 ├─ scripts/win/            # lançadores usados pelo start automático
 ├─ certs/                  # certificados gerados (ignorado pelo git)
-├─ data/app.db             # seu banco (criado no primeiro uso; faça backup dele)
+├─ (banco)                 # %LOCALAPPDATA%\nossas-financas\app.db no Windows,
+│                          # ./data/app.db nos demais — faça backup dele (seção 9)
 ├─ Dockerfile / docker-compose.yml
 └─ .env                    # suas credenciais (NÃO compartilhar)
 ```
