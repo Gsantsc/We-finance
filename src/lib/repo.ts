@@ -1,7 +1,11 @@
-// Funcoes de acesso ao banco. Retornam objetos ja no formato que as telas
-// esperam (com entity, category e owner aninhados quando faz sentido).
+// Funcoes de acesso ao banco (Postgres/Supabase). Retornam objetos ja no
+// formato que as telas esperam (camelCase, com entity/category/owner
+// aninhados quando faz sentido) - as colunas no banco sao snake_case, entao
+// as funcoes "shape*" fazem essa ponte.
 
-import { db, newId, nowIso } from "./db";
+import { sql, newId, nowIso } from "./db";
+import type postgres from "postgres";
+import { billStatus, goalPercent, nextGoalAmount, percentUsado } from "./rules";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
 export type AccountType =
@@ -14,185 +18,174 @@ export type AccountType =
 
 type Row = Record<string, any>;
 
-function bool(v: any): boolean {
-  return v === 1 || v === true;
-}
-
 // Agrupa varias escritas numa transacao so: ou tudo grava, ou nada grava.
 // Usado onde um lancamento mexe em mais de uma tabela (transacao + saldo).
-function inTransaction<T>(fn: () => T): T {
-  db.exec("BEGIN");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+function inTransaction<T>(fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
+  return sql.begin(fn) as Promise<T>;
 }
 
 // ---------- Users ----------
 
-export function getUserByEmail(email: string): Row | undefined {
-  return db.prepare("SELECT * FROM users WHERE email = ?").get(email) as Row | undefined;
+function shapeUser(row: Row): Row {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at,
+  };
 }
 
-export function getUserById(id: string): Row | undefined {
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as Row | undefined;
+export async function getUserByEmail(email: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM users WHERE email = ${email}`;
+  return row ? shapeUser(row) : undefined;
 }
 
-export function upsertUser(u: {
+export async function getUserById(id: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM users WHERE id = ${id}`;
+  return row ? shapeUser(row) : undefined;
+}
+
+export async function upsertUser(u: {
   name: string;
   email: string;
   passwordHash: string;
-}): Row {
-  const existing = getUserByEmail(u.email);
+}): Promise<Row> {
+  const existing = await getUserByEmail(u.email);
   if (existing) {
     // Atualiza tambem a senha: e assim que o README manda recuperar acesso
     // (troca USER*_PASSWORD no .env e roda o seed de novo).
-    db.prepare("UPDATE users SET name = ?, passwordHash = ? WHERE id = ?").run(
-      u.name,
-      u.passwordHash,
-      existing.id
-    );
-    return getUserById(existing.id)!;
+    await sql`UPDATE users SET name = ${u.name}, password_hash = ${u.passwordHash} WHERE id = ${existing.id}`;
+    return (await getUserById(existing.id))!;
   }
   const id = newId();
-  db.prepare(
-    "INSERT INTO users (id, name, email, passwordHash, createdAt) VALUES (?, ?, ?, ?, ?)"
-  ).run(id, u.name, u.email, u.passwordHash, nowIso());
-  return getUserById(id)!;
+  await sql`INSERT INTO users (id, name, email, password_hash, created_at) VALUES (${id}, ${u.name}, ${u.email}, ${u.passwordHash}, ${nowIso()})`;
+  return (await getUserById(id))!;
 }
 
 // ---------- Entities ----------
 
-function shapeEntity(row: Row): Row {
-  const owner = row.ownerId ? getUserById(row.ownerId) : null;
-  const accounts = db
-    .prepare("SELECT * FROM accounts WHERE entityId = ? AND archived = 0")
-    .all(row.id) as Row[];
+async function shapeEntity(row: Row): Promise<Row> {
+  const owner = row.owner_id ? await getUserById(row.owner_id) : null;
+  const accountRows = await sql`SELECT * FROM accounts WHERE entity_id = ${row.id} AND archived = false`;
   // A entidade das contas ja e esta - passamos adiante para nao consultar de novo.
   const resumo = { id: row.id, name: row.name, type: row.type, color: row.color };
   return {
     id: row.id,
     name: row.name,
     type: row.type,
-    ownerId: row.ownerId,
+    ownerId: row.owner_id,
     color: row.color,
-    archived: bool(row.archived),
-    createdAt: row.createdAt,
+    archived: row.archived,
+    createdAt: row.created_at,
     owner: owner ? { id: owner.id, name: owner.name } : null,
-    accounts: accounts.map((a) => shapeAccount(a, resumo)),
+    accounts: await Promise.all(accountRows.map((a) => shapeAccount(a, resumo))),
   };
 }
 
-export function listEntities(): Row[] {
-  const rows = db
-    .prepare("SELECT * FROM entities WHERE archived = 0 ORDER BY createdAt ASC")
-    .all() as Row[];
-  return rows.map(shapeEntity);
+export async function listEntities(): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM entities WHERE archived = false ORDER BY created_at ASC`;
+  return Promise.all(rows.map(shapeEntity));
 }
 
-export function findEntityByName(name: string): Row | undefined {
-  return db.prepare("SELECT * FROM entities WHERE name = ?").get(name) as Row | undefined;
+export async function findEntityByName(name: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM entities WHERE name = ${name}`;
+  return row;
 }
 
-export function createEntity(e: {
+export async function createEntity(e: {
   name: string;
   type: EntityType;
   ownerId?: string | null;
   color?: string;
-}): Row {
+}): Promise<Row> {
   const id = newId();
-  db.prepare(
-    "INSERT INTO entities (id, name, type, ownerId, color, archived, createdAt) VALUES (?, ?, ?, ?, ?, 0, ?)"
-  ).run(id, e.name, e.type, e.ownerId ?? null, e.color ?? "#6366f1", nowIso());
-  return db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as Row;
+  await sql`INSERT INTO entities (id, name, type, owner_id, color, archived, created_at)
+    VALUES (${id}, ${e.name}, ${e.type}, ${e.ownerId ?? null}, ${e.color ?? "#6366f1"}, false, ${nowIso()})`;
+  const [row] = await sql`SELECT * FROM entities WHERE id = ${id}`;
+  return shapeEntity(row);
 }
 
-export function updateEntity(id: string, patch: Row): Row {
-  const cur = db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as Row;
+export async function updateEntity(id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM entities WHERE id = ${id}`;
   if (!cur) throw new Error("Entidade nao encontrada");
   const next = {
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,
-    ownerId: patch.ownerId === undefined ? cur.ownerId : patch.ownerId,
+    ownerId: patch.ownerId === undefined ? cur.owner_id : patch.ownerId,
     color: patch.color ?? cur.color,
-    archived: patch.archived === undefined ? cur.archived : patch.archived ? 1 : 0,
+    archived: patch.archived === undefined ? cur.archived : !!patch.archived,
   };
-  db.prepare(
-    "UPDATE entities SET name = ?, type = ?, ownerId = ?, color = ?, archived = ? WHERE id = ?"
-  ).run(next.name, next.type, next.ownerId, next.color, next.archived, id);
-  return db.prepare("SELECT * FROM entities WHERE id = ?").get(id) as Row;
+  await sql`UPDATE entities SET name = ${next.name}, type = ${next.type}, owner_id = ${next.ownerId}, color = ${next.color}, archived = ${next.archived} WHERE id = ${id}`;
+  const [row] = await sql`SELECT * FROM entities WHERE id = ${id}`;
+  return shapeEntity(row);
 }
 
 // ---------- Accounts ----------
 
-function shapeAccount(row: Row, knownEntity?: Row | null): Row {
-  const entity =
-    knownEntity !== undefined
-      ? knownEntity
-      : row.entityId
-      ? (db.prepare("SELECT id, name, type, color FROM entities WHERE id = ?").get(row.entityId) as Row)
-      : null;
+async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
+  let entity = knownEntity;
+  if (entity === undefined) {
+    if (row.entity_id) {
+      const [e] = await sql`SELECT id, name, type, color FROM entities WHERE id = ${row.entity_id}`;
+      entity = e ?? null;
+    } else {
+      entity = null;
+    }
+  }
   return {
     id: row.id,
-    entityId: row.entityId,
+    entityId: row.entity_id,
     name: row.name,
     type: row.type,
     institution: row.institution,
     balance: row.balance,
     currency: row.currency,
-    pluggyItemId: row.pluggyItemId,
-    pluggyAccountId: row.pluggyAccountId,
-    isManual: bool(row.isManual),
-    archived: bool(row.archived),
+    pluggyItemId: row.pluggy_item_id,
+    pluggyAccountId: row.pluggy_account_id,
+    isManual: row.is_manual,
+    archived: row.archived,
     entity: entity || null,
   };
 }
 
-export function listAccounts(): Row[] {
-  const rows = db
-    .prepare("SELECT * FROM accounts WHERE archived = 0 ORDER BY createdAt ASC")
-    .all() as Row[];
-  return rows.map((r) => shapeAccount(r));
+export async function listAccounts(): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM accounts WHERE archived = false ORDER BY created_at ASC`;
+  return Promise.all(rows.map((r) => shapeAccount(r)));
 }
 
-export function createAccount(a: {
+export async function createAccount(a: {
   name: string;
   type: AccountType;
   entityId?: string | null;
   balance?: number;
   institution?: string | null;
-}): Row {
+}): Promise<Row> {
   const id = newId();
   const ts = nowIso();
-  db.prepare(
-    `INSERT INTO accounts (id, entityId, name, type, institution, balance, currency, isManual, archived, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, 'BRL', 1, 0, ?, ?)`
-  ).run(id, a.entityId ?? null, a.name, a.type, a.institution ?? null, a.balance ?? 0, ts, ts);
-  return shapeAccount(db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as Row);
+  await sql`INSERT INTO accounts (id, entity_id, name, type, institution, balance, currency, is_manual, archived, created_at, updated_at)
+    VALUES (${id}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance ?? 0}, 'BRL', true, false, ${ts}, ${ts})`;
+  const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
+  return shapeAccount(row);
 }
 
-export function updateAccount(id: string, patch: Row): Row {
-  const cur = db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as Row;
+export async function updateAccount(id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   if (!cur) throw new Error("Conta nao encontrada");
   const next = {
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,
-    entityId: patch.entityId === undefined ? cur.entityId : patch.entityId,
+    entityId: patch.entityId === undefined ? cur.entity_id : patch.entityId,
     balance: patch.balance === undefined ? cur.balance : patch.balance,
-    archived: patch.archived === undefined ? cur.archived : patch.archived ? 1 : 0,
+    archived: patch.archived === undefined ? cur.archived : !!patch.archived,
   };
-  db.prepare(
-    "UPDATE accounts SET name = ?, type = ?, entityId = ?, balance = ?, archived = ?, updatedAt = ? WHERE id = ?"
-  ).run(next.name, next.type, next.entityId, next.balance, next.archived, nowIso(), id);
-  return shapeAccount(db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as Row);
+  await sql`UPDATE accounts SET name = ${next.name}, type = ${next.type}, entity_id = ${next.entityId}, balance = ${next.balance}, archived = ${next.archived}, updated_at = ${nowIso()} WHERE id = ${id}`;
+  const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
+  return shapeAccount(row);
 }
 
 // Usado no sync: cria/atualiza conta pela pluggyAccountId
-export function upsertPluggyAccount(a: {
+export async function upsertPluggyAccount(a: {
   name: string;
   type: AccountType;
   balance: number;
@@ -200,66 +193,63 @@ export function upsertPluggyAccount(a: {
   institution?: string | null;
   pluggyItemId: string;
   pluggyAccountId: string;
-}): Row {
-  const existing = db
-    .prepare("SELECT * FROM accounts WHERE pluggyAccountId = ?")
-    .get(a.pluggyAccountId) as Row | undefined;
+}): Promise<Row> {
+  const [existing] = await sql`SELECT * FROM accounts WHERE pluggy_account_id = ${a.pluggyAccountId}`;
   const ts = nowIso();
   if (existing) {
-    db.prepare(
-      "UPDATE accounts SET name = ?, balance = ?, currency = ?, institution = ?, pluggyItemId = ?, updatedAt = ? WHERE id = ?"
-    ).run(a.name, a.balance, a.currency, a.institution ?? null, a.pluggyItemId, ts, existing.id);
-    return db.prepare("SELECT * FROM accounts WHERE id = ?").get(existing.id) as Row;
+    await sql`UPDATE accounts SET name = ${a.name}, balance = ${a.balance}, currency = ${a.currency}, institution = ${a.institution ?? null}, pluggy_item_id = ${a.pluggyItemId}, updated_at = ${ts} WHERE id = ${existing.id}`;
+    const [row] = await sql`SELECT * FROM accounts WHERE id = ${existing.id}`;
+    return shapeAccount(row);
   }
   const id = newId();
-  db.prepare(
-    `INSERT INTO accounts (id, entityId, name, type, institution, balance, currency, pluggyItemId, pluggyAccountId, isManual, archived, createdAt, updatedAt)
-     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-  ).run(id, a.name, a.type, a.institution ?? null, a.balance, a.currency, a.pluggyItemId, a.pluggyAccountId, ts, ts);
-  return db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as Row;
+  await sql`INSERT INTO accounts (id, entity_id, name, type, institution, balance, currency, pluggy_item_id, pluggy_account_id, is_manual, archived, created_at, updated_at)
+    VALUES (${id}, NULL, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance}, ${a.currency}, ${a.pluggyItemId}, ${a.pluggyAccountId}, false, false, ${ts}, ${ts})`;
+  const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
+  return shapeAccount(row);
 }
 
 // ---------- Categories ----------
 
-export function listCategories(): Row[] {
-  return db.prepare("SELECT * FROM categories ORDER BY name ASC").all() as Row[];
+function shapeCategory(row: Row): Row {
+  return { id: row.id, name: row.name, icon: row.icon, isIncome: row.is_income };
 }
 
-export function upsertCategoryByName(name: string, icon = "💸", isIncome = false): Row {
-  const existing = db.prepare("SELECT * FROM categories WHERE name = ?").get(name) as Row | undefined;
-  if (existing) return existing;
+export async function listCategories(): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM categories ORDER BY name ASC`;
+  return rows.map(shapeCategory);
+}
+
+export async function upsertCategoryByName(name: string, icon = "💸", isIncome = false): Promise<Row> {
+  const [existing] = await sql`SELECT * FROM categories WHERE name = ${name}`;
+  if (existing) return shapeCategory(existing);
   const id = newId();
-  db.prepare("INSERT INTO categories (id, name, icon, isIncome) VALUES (?, ?, ?, ?)").run(
-    id,
-    name,
-    icon,
-    isIncome ? 1 : 0
-  );
-  return db.prepare("SELECT * FROM categories WHERE id = ?").get(id) as Row;
+  await sql`INSERT INTO categories (id, name, icon, is_income) VALUES (${id}, ${name}, ${icon}, ${isIncome})`;
+  const [row] = await sql`SELECT * FROM categories WHERE id = ${id}`;
+  return shapeCategory(row);
 }
 
 // ---------- Transactions ----------
 
-function shapeTransaction(row: Row): Row {
-  const account = db.prepare("SELECT * FROM accounts WHERE id = ?").get(row.accountId) as Row;
-  const category = row.categoryId
-    ? (db.prepare("SELECT * FROM categories WHERE id = ?").get(row.categoryId) as Row)
-    : null;
-  const createdBy = row.createdById
-    ? (db.prepare("SELECT id, name FROM users WHERE id = ?").get(row.createdById) as Row)
-    : null;
+async function shapeTransaction(row: Row): Promise<Row> {
+  const [account] = await sql`SELECT * FROM accounts WHERE id = ${row.account_id}`;
+  const [category] = row.category_id
+    ? await sql`SELECT * FROM categories WHERE id = ${row.category_id}`
+    : [null];
+  const [createdBy] = row.created_by_id
+    ? await sql`SELECT id, name FROM users WHERE id = ${row.created_by_id}`
+    : [null];
   return {
     id: row.id,
-    accountId: row.accountId,
-    categoryId: row.categoryId,
+    accountId: row.account_id,
+    categoryId: row.category_id,
     description: row.description,
     amount: row.amount,
     date: row.date,
-    isManual: bool(row.isManual),
+    isManual: row.is_manual,
     notes: row.notes,
-    account: account ? shapeAccount(account) : null,
+    account: account ? await shapeAccount(account) : null,
     category: category
-      ? { id: category.id, name: category.name, icon: category.icon, isIncome: bool(category.isIncome) }
+      ? { id: category.id, name: category.name, icon: category.icon, isIncome: category.is_income }
       : null,
     createdBy: createdBy ? { id: createdBy.id, name: createdBy.name } : null,
   };
@@ -270,106 +260,84 @@ function shapeTransaction(row: Row): Row {
 function shapeJoinedTransaction(r: Row): Row {
   return {
     id: r.id,
-    accountId: r.accountId,
-    categoryId: r.categoryId,
+    accountId: r.account_id,
+    categoryId: r.category_id,
     description: r.description,
     amount: r.amount,
     date: r.date,
-    isManual: bool(r.isManual),
+    isManual: r.is_manual,
     notes: r.notes,
     account: {
-      id: r.accountId,
-      entityId: r.a_entityId,
+      id: r.account_id,
+      entityId: r.a_entity_id,
       name: r.a_name,
       type: r.a_type,
       institution: r.a_institution,
       balance: r.a_balance,
       currency: r.a_currency,
-      pluggyItemId: r.a_pluggyItemId,
-      pluggyAccountId: r.a_pluggyAccountId,
-      isManual: bool(r.a_isManual),
-      archived: bool(r.a_archived),
+      pluggyItemId: r.a_pluggy_item_id,
+      pluggyAccountId: r.a_pluggy_account_id,
+      isManual: r.a_is_manual,
+      archived: r.a_archived,
       entity: r.e_id
         ? { id: r.e_id, name: r.e_name, type: r.e_type, color: r.e_color }
         : null,
     },
     category: r.c_id
-      ? { id: r.c_id, name: r.c_name, icon: r.c_icon, isIncome: bool(r.c_isIncome) }
+      ? { id: r.c_id, name: r.c_name, icon: r.c_icon, isIncome: r.c_is_income }
       : null,
     createdBy: r.u_id ? { id: r.u_id, name: r.u_name } : null,
   };
 }
 
-export function listTransactions(filters: {
+export async function listTransactions(filters: {
   entityId?: string | null;
   accountId?: string | null;
   categoryId?: string | null;
   limit?: number;
-}): Row[] {
-  const clauses: string[] = [];
-  const params: any[] = [];
-  if (filters.accountId) {
-    clauses.push("t.accountId = ?");
-    params.push(filters.accountId);
-  }
-  if (filters.categoryId) {
-    clauses.push("t.categoryId = ?");
-    params.push(filters.categoryId);
-  }
-  if (filters.entityId) {
-    clauses.push("a.entityId = ?");
-    params.push(filters.entityId);
-  }
-  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-
+}): Promise<Row[]> {
   // O limite entra como parametro (nunca concatenado) e com teto, para uma
   // querystring maluca nao virar consulta gigante.
   const pedido = Number(filters.limit);
-  const limit = Number.isFinite(pedido)
-    ? Math.min(Math.max(Math.trunc(pedido), 1), 2000)
-    : 300;
-  params.push(limit);
+  const limit = Number.isFinite(pedido) ? Math.min(Math.max(Math.trunc(pedido), 1), 2000) : 300;
 
-  const rows = db
-    .prepare(
-      `SELECT t.*,
-              a.entityId AS a_entityId, a.name AS a_name, a.type AS a_type,
-              a.institution AS a_institution, a.balance AS a_balance,
-              a.currency AS a_currency, a.pluggyItemId AS a_pluggyItemId,
-              a.pluggyAccountId AS a_pluggyAccountId, a.isManual AS a_isManual,
-              a.archived AS a_archived,
-              e.id AS e_id, e.name AS e_name, e.type AS e_type, e.color AS e_color,
-              c.id AS c_id, c.name AS c_name, c.icon AS c_icon, c.isIncome AS c_isIncome,
-              u.id AS u_id, u.name AS u_name
-       FROM transactions t
-       JOIN accounts a ON a.id = t.accountId
-       LEFT JOIN entities e ON e.id = a.entityId
-       LEFT JOIN categories c ON c.id = t.categoryId
-       LEFT JOIN users u ON u.id = t.createdById
-       ${where}
-       ORDER BY t.date DESC
-       LIMIT ?`
-    )
-    .all(...params) as Row[];
+  const rows = await sql`
+    SELECT t.*,
+           a.entity_id AS a_entity_id, a.name AS a_name, a.type AS a_type,
+           a.institution AS a_institution, a.balance AS a_balance,
+           a.currency AS a_currency, a.pluggy_item_id AS a_pluggy_item_id,
+           a.pluggy_account_id AS a_pluggy_account_id, a.is_manual AS a_is_manual,
+           a.archived AS a_archived,
+           e.id AS e_id, e.name AS e_name, e.type AS e_type, e.color AS e_color,
+           c.id AS c_id, c.name AS c_name, c.icon AS c_icon, c.is_income AS c_is_income,
+           u.id AS u_id, u.name AS u_name
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN entities e ON e.id = a.entity_id
+    LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN users u ON u.id = t.created_by_id
+    WHERE 1=1
+      ${filters.accountId ? sql`AND t.account_id = ${filters.accountId}` : sql``}
+      ${filters.categoryId ? sql`AND t.category_id = ${filters.categoryId}` : sql``}
+      ${filters.entityId ? sql`AND a.entity_id = ${filters.entityId}` : sql``}
+    ORDER BY t.date DESC
+    LIMIT ${limit}
+  `;
   return rows.map(shapeJoinedTransaction);
 }
 
 // Em conta manual (carteira, dinheiro em especie) o saldo so muda se a gente
 // mexer nele: entao cada lancamento manual soma/subtrai do saldo da conta.
 // Conta vinda da Pluggy nao entra aqui - o saldo dela vem do proprio banco.
-function applyBalanceDelta(accountId: string, delta: number) {
+async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, delta: number) {
   if (!delta) return;
-  const account = db
-    .prepare("SELECT isManual FROM accounts WHERE id = ?")
-    .get(accountId) as Row | undefined;
+  const [account] = await tx`SELECT is_manual FROM accounts WHERE id = ${accountId}`;
   if (!account) throw new Error("Conta nao encontrada");
-  if (!bool(account.isManual)) return;
-  db.prepare(
-    "UPDATE accounts SET balance = balance + ?, updatedAt = ? WHERE id = ?"
-  ).run(delta, nowIso(), accountId);
+  if (!account.is_manual) return;
+  await tx`UPDATE accounts SET balance = balance + ${delta}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
 
-export function createTransaction(t: {
+export async function createTransaction(t: {
   accountId: string;
   description: string;
   amount: number;
@@ -377,77 +345,301 @@ export function createTransaction(t: {
   categoryId?: string | null;
   notes?: string | null;
   createdById?: string | null;
-}): Row {
+}): Promise<Row> {
   const id = newId();
-  return inTransaction(() => {
-    db.prepare(
-      `INSERT INTO transactions (id, accountId, categoryId, description, amount, date, isManual, notes, createdById, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
-    ).run(
-      id,
-      t.accountId,
-      t.categoryId ?? null,
-      t.description,
-      t.amount,
-      new Date(t.date).toISOString(),
-      t.notes ?? null,
-      t.createdById ?? null,
-      nowIso()
-    );
-    applyBalanceDelta(t.accountId, t.amount);
-    return shapeTransaction(db.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Row);
+  await inTransaction(async (tx) => {
+    await tx`INSERT INTO transactions (id, account_id, category_id, description, amount, date, is_manual, notes, created_by_id, created_at)
+      VALUES (${id}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${t.amount}, ${new Date(t.date).toISOString()}, true, ${t.notes ?? null}, ${t.createdById ?? null}, ${nowIso()})`;
+    await applyBalanceDelta(tx, t.accountId, t.amount);
   });
+  const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
+  return shapeTransaction(row);
 }
 
-export function updateTransaction(id: string, patch: Row): Row {
-  const cur = db.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Row;
+export async function updateTransaction(id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
   if (!cur) throw new Error("Transacao nao encontrada");
   const next = {
     description: patch.description ?? cur.description,
     amount: patch.amount === undefined ? cur.amount : patch.amount,
     date: patch.date ? new Date(patch.date).toISOString() : cur.date,
-    categoryId: patch.categoryId === undefined ? cur.categoryId : patch.categoryId,
+    categoryId: patch.categoryId === undefined ? cur.category_id : patch.categoryId,
     notes: patch.notes === undefined ? cur.notes : patch.notes,
   };
-  return inTransaction(() => {
-    db.prepare(
-      "UPDATE transactions SET description = ?, amount = ?, date = ?, categoryId = ?, notes = ? WHERE id = ?"
-    ).run(next.description, next.amount, next.date, next.categoryId, next.notes, id);
+  await inTransaction(async (tx) => {
+    await tx`UPDATE transactions SET description = ${next.description}, amount = ${next.amount}, date = ${next.date}, category_id = ${next.categoryId}, notes = ${next.notes} WHERE id = ${id}`;
     // So a diferenca entra no saldo (editar 50 para 70 mexe 20, nao 70).
-    applyBalanceDelta(cur.accountId, next.amount - cur.amount);
-    return shapeTransaction(db.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Row);
+    await applyBalanceDelta(tx, cur.account_id, next.amount - cur.amount);
   });
+  const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
+  return shapeTransaction(row);
 }
 
 // Usado no sync: cria/atualiza transacao pela pluggyTransactionId
-export function upsertPluggyTransaction(t: {
+export async function upsertPluggyTransaction(t: {
   accountId: string;
   description: string;
   amount: number;
   date: string;
   categoryId?: string | null;
   pluggyTransactionId: string;
-}): void {
-  const existing = db
-    .prepare("SELECT id FROM transactions WHERE pluggyTransactionId = ?")
-    .get(t.pluggyTransactionId) as Row | undefined;
+}): Promise<void> {
+  const [existing] = await sql`SELECT id FROM transactions WHERE pluggy_transaction_id = ${t.pluggyTransactionId}`;
   if (existing) {
-    db.prepare(
-      "UPDATE transactions SET description = ?, amount = ?, date = ?, categoryId = ? WHERE id = ?"
-    ).run(t.description, t.amount, new Date(t.date).toISOString(), t.categoryId ?? null, existing.id);
+    await sql`UPDATE transactions SET description = ${t.description}, amount = ${t.amount}, date = ${new Date(t.date).toISOString()}, category_id = ${t.categoryId ?? null} WHERE id = ${existing.id}`;
     return;
   }
-  db.prepare(
-    `INSERT INTO transactions (id, accountId, categoryId, description, amount, date, pluggyTransactionId, isManual, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`
-  ).run(
-    newId(),
-    t.accountId,
-    t.categoryId ?? null,
-    t.description,
-    t.amount,
-    new Date(t.date).toISOString(),
-    t.pluggyTransactionId,
-    nowIso()
+  await sql`INSERT INTO transactions (id, account_id, category_id, description, amount, date, pluggy_transaction_id, is_manual, created_at)
+    VALUES (${newId()}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${t.amount}, ${new Date(t.date).toISOString()}, ${t.pluggyTransactionId}, false, ${nowIso()})`;
+}
+
+// ---------- helpers compartilhados das fases 2-4 ----------
+
+// "YYYY-MM" a partir de mes (1-12) e ano; e o prefixo da data ISO guardada nas
+// transacoes, entao da para filtrar o mes com substr(date,1,7).
+function chaveMes(month: number, year: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+async function entidadeResumo(entityId: string | null): Promise<Row | null> {
+  if (!entityId) return null;
+  const [row] = await sql`SELECT id, name, type, color FROM entities WHERE id = ${entityId}`;
+  return row || null;
+}
+
+// Quanto ja foi gasto (despesas, valor negativo) numa entidade+categoria num mes.
+async function gastoDoMes(entityId: string, categoryId: string, chave: string): Promise<number> {
+  const [r] = await sql`
+    SELECT COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS gasto
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    WHERE a.entity_id = ${entityId} AND t.category_id = ${categoryId} AND substr(t.date, 1, 7) = ${chave}
+  `;
+  return Number(r.gasto);
+}
+
+// ---------- Budgets (orcamento por categoria) ----------
+
+export async function listBudgets(month: number, year: number): Promise<Row[]> {
+  const chave = chaveMes(month, year);
+  const rows = await sql`
+    SELECT b.*, c.name AS c_name, c.icon AS c_icon
+    FROM budgets b
+    JOIN categories c ON c.id = b.category_id
+    WHERE b.month = ${month} AND b.year = ${year}
+    ORDER BY c.name ASC
+  `;
+
+  return Promise.all(
+    rows.map(async (b) => {
+      const gasto = await gastoDoMes(b.entity_id, b.category_id, chave);
+      return {
+        id: b.id,
+        entityId: b.entity_id,
+        categoryId: b.category_id,
+        month: b.month,
+        year: b.year,
+        amount: b.amount,
+        gasto,
+        restante: b.amount - gasto,
+        percentUsado: percentUsado(gasto, b.amount),
+        entity: await entidadeResumo(b.entity_id),
+        category: { id: b.category_id, name: b.c_name, icon: b.c_icon },
+      };
+    })
   );
+}
+
+// Cria ou atualiza o orcamento daquela entidade+categoria+mes (a tabela tem
+// UNIQUE nesses campos, entao mexer no mesmo mes so troca o valor).
+export async function upsertBudget(b: {
+  entityId: string;
+  categoryId: string;
+  month: number;
+  year: number;
+  amount: number;
+}): Promise<Row> {
+  const [existente] = await sql`
+    SELECT id FROM budgets WHERE entity_id = ${b.entityId} AND category_id = ${b.categoryId} AND month = ${b.month} AND year = ${b.year}
+  `;
+
+  if (existente) {
+    await sql`UPDATE budgets SET amount = ${b.amount} WHERE id = ${existente.id}`;
+    const [row] = await sql`SELECT * FROM budgets WHERE id = ${existente.id}`;
+    return row;
+  }
+  const id = newId();
+  await sql`INSERT INTO budgets (id, entity_id, category_id, month, year, amount, created_at)
+    VALUES (${id}, ${b.entityId}, ${b.categoryId}, ${b.month}, ${b.year}, ${b.amount}, ${nowIso()})`;
+  const [row] = await sql`SELECT * FROM budgets WHERE id = ${id}`;
+  return row;
+}
+
+export async function deleteBudget(id: string): Promise<void> {
+  await sql`DELETE FROM budgets WHERE id = ${id}`;
+}
+
+// ---------- Goals (metas de economia) ----------
+
+async function shapeGoal(row: Row): Promise<Row> {
+  const alvo = row.target_amount as number;
+  const atual = row.current_amount as number;
+  return {
+    id: row.id,
+    entityId: row.entity_id,
+    name: row.name,
+    targetAmount: alvo,
+    currentAmount: atual,
+    targetDate: row.target_date,
+    percent: goalPercent(atual, alvo),
+    restante: Math.max(0, alvo - atual),
+    concluida: atual >= alvo,
+    entity: await entidadeResumo(row.entity_id),
+  };
+}
+
+export async function listGoals(): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM goals ORDER BY created_at ASC`;
+  return Promise.all(rows.map(shapeGoal));
+}
+
+export async function createGoal(g: {
+  entityId: string;
+  name: string;
+  targetAmount: number;
+  currentAmount?: number;
+  targetDate?: string | null;
+}): Promise<Row> {
+  const id = newId();
+  await sql`INSERT INTO goals (id, entity_id, name, target_amount, current_amount, target_date, created_at)
+    VALUES (${id}, ${g.entityId}, ${g.name}, ${g.targetAmount}, ${g.currentAmount ?? 0}, ${g.targetDate ?? null}, ${nowIso()})`;
+  const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
+  return shapeGoal(row);
+}
+
+export async function updateGoal(id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM goals WHERE id = ${id}`;
+  if (!cur) throw new Error("Meta nao encontrada");
+  const next = {
+    name: patch.name ?? cur.name,
+    targetAmount: patch.targetAmount === undefined ? cur.target_amount : patch.targetAmount,
+    currentAmount: nextGoalAmount(cur.current_amount, patch),
+    targetDate: patch.targetDate === undefined ? cur.target_date : patch.targetDate,
+  };
+  await sql`UPDATE goals SET name = ${next.name}, target_amount = ${next.targetAmount}, current_amount = ${next.currentAmount}, target_date = ${next.targetDate} WHERE id = ${id}`;
+  const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
+  return shapeGoal(row);
+}
+
+export async function deleteGoal(id: string): Promise<void> {
+  await sql`DELETE FROM goals WHERE id = ${id}`;
+}
+
+// ---------- Bills (contas a pagar / lembretes) ----------
+
+async function shapeBill(row: Row, hoje = new Date()): Promise<Row> {
+  return {
+    id: row.id,
+    entityId: row.entity_id,
+    name: row.name,
+    amount: row.amount,
+    dueDay: row.due_day,
+    recurring: row.recurring,
+    lastPaidAt: row.last_paid_at,
+    ...billStatus(row.due_day, row.last_paid_at, hoje),
+    entity: await entidadeResumo(row.entity_id),
+  };
+}
+
+export async function listBills(): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM bills ORDER BY due_day ASC`;
+  return Promise.all(rows.map((r) => shapeBill(r)));
+}
+
+export async function createBill(b: {
+  entityId: string;
+  name: string;
+  amount: number;
+  dueDay: number;
+  recurring?: boolean;
+}): Promise<Row> {
+  const id = newId();
+  await sql`INSERT INTO bills (id, entity_id, name, amount, due_day, recurring, created_at)
+    VALUES (${id}, ${b.entityId}, ${b.name}, ${b.amount}, ${b.dueDay}, ${b.recurring !== false}, ${nowIso()})`;
+  const [row] = await sql`SELECT * FROM bills WHERE id = ${id}`;
+  return shapeBill(row);
+}
+
+export async function updateBill(id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM bills WHERE id = ${id}`;
+  if (!cur) throw new Error("Conta a pagar nao encontrada");
+  const next = {
+    name: patch.name ?? cur.name,
+    amount: patch.amount === undefined ? cur.amount : patch.amount,
+    dueDay: patch.dueDay === undefined ? cur.due_day : patch.dueDay,
+    recurring: patch.recurring === undefined ? cur.recurring : !!patch.recurring,
+    // "pagar": marca como pago agora; "desmarcar": limpa o pagamento.
+    lastPaidAt:
+      patch.pagar === true
+        ? nowIso()
+        : patch.pagar === false
+        ? null
+        : patch.lastPaidAt === undefined
+        ? cur.last_paid_at
+        : patch.lastPaidAt,
+  };
+  await sql`UPDATE bills SET name = ${next.name}, amount = ${next.amount}, due_day = ${next.dueDay}, recurring = ${next.recurring}, last_paid_at = ${next.lastPaidAt} WHERE id = ${id}`;
+  const [row] = await sql`SELECT * FROM bills WHERE id = ${id}`;
+  return shapeBill(row);
+}
+
+export async function deleteBill(id: string): Promise<void> {
+  await sql`DELETE FROM bills WHERE id = ${id}`;
+}
+
+// ---------- Relatorios (fase 4) ----------
+
+// Receita x despesa dos ultimos N meses (para o grafico de barras). Opcionalmente
+// filtra por entidade.
+export async function monthlySummary(months = 6, entityId?: string | null): Promise<Row[]> {
+  const limite = Math.min(Math.max(months, 1), 36);
+  const rows = await sql`
+    SELECT substr(t.date, 1, 7) AS mes,
+           COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS receita,
+           COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS despesa
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    WHERE 1=1 ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
+    GROUP BY mes
+    ORDER BY mes DESC
+    LIMIT ${limite}
+  `;
+
+  // Vem do mais recente para o mais antigo; devolve em ordem cronologica.
+  return rows
+    .slice()
+    .reverse()
+    .map((r) => ({
+      mes: r.mes,
+      receita: r.receita,
+      despesa: r.despesa,
+      saldo: r.receita - r.despesa,
+    }));
+}
+
+// Gasto por categoria num mes (para o grafico de composicao das despesas).
+export async function spendingByCategory(month: number, year: number, entityId?: string | null): Promise<Row[]> {
+  const chave = chaveMes(month, year);
+  const rows = await sql`
+    SELECT c.id AS id, c.name AS name, c.icon AS icon,
+           COALESCE(SUM(-t.amount), 0) AS gasto
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    JOIN categories c ON c.id = t.category_id
+    WHERE t.amount < 0 AND substr(t.date, 1, 7) = ${chave} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
+    GROUP BY c.id, c.name, c.icon
+    HAVING COALESCE(SUM(-t.amount), 0) > 0
+    ORDER BY gasto DESC
+  `;
+  return rows;
 }

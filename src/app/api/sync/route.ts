@@ -21,7 +21,7 @@ export async function POST() {
       const pluggyAccounts = await listAccounts(item.id);
 
       for (const pa of pluggyAccounts) {
-        const account = upsertPluggyAccount({
+        const account = await upsertPluggyAccount({
           name: pa.name,
           type: mapAccountType(pa.type, pa.subtype),
           balance: normalizeBalance(pa.type, pa.balance),
@@ -36,9 +36,9 @@ export async function POST() {
         for (const t of transactions) {
           let categoryId: string | null = null;
           if (t.category) {
-            categoryId = upsertCategoryByName(t.category).id;
+            categoryId = (await upsertCategoryByName(t.category)).id;
           }
-          upsertPluggyTransaction({
+          await upsertPluggyTransaction({
             accountId: account.id,
             description: t.description,
             amount: t.amount,

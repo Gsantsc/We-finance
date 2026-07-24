@@ -4,10 +4,10 @@ import Providers from "./providers";
 import RegistrarSW from "@/components/RegistrarSW";
 
 export const metadata: Metadata = {
-  title: "Nossas Financas",
+  title: "We Finance",
   description: "Controle financeiro de casa, pessoal e PJ",
   manifest: "/manifest.webmanifest",
-  applicationName: "Nossas Financas",
+  applicationName: "We Finance",
   icons: {
     icon: [
       { url: "/icone-192.png", sizes: "192x192", type: "image/png" },
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   // Faz o iPhone abrir em tela cheia quando adicionado a tela de inicio.
   appleWebApp: {
     capable: true,
-    title: "Financas",
+    title: "We Finance",
     statusBarStyle: "default",
   },
   formatDetection: { telephone: false },

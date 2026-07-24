@@ -80,3 +80,59 @@ export const transactionUpdateSchema = z.object({
   categoryId: id.nullish(),
   notes: z.string().trim().max(500).nullish(),
 });
+
+const mes = z.number().int().min(1, "mes de 1 a 12").max(12, "mes de 1 a 12");
+const ano = z.number().int().min(2000).max(2100);
+const valorPositivo = valor.refine((v) => v >= 0, "nao pode ser negativo");
+
+// ---------- Orcamentos (budgets) ----------
+
+export const budgetUpsertSchema = z.object({
+  entityId: id,
+  categoryId: id,
+  month: mes,
+  year: ano,
+  amount: valorPositivo,
+});
+
+// ---------- Metas (goals) ----------
+
+export const goalCreateSchema = z.object({
+  entityId: id,
+  name: nome,
+  targetAmount: valorPositivo,
+  currentAmount: valorPositivo.optional(),
+  targetDate: data.nullish(),
+});
+
+export const goalUpdateSchema = z.object({
+  id,
+  name: nome.optional(),
+  targetAmount: valorPositivo.optional(),
+  currentAmount: valorPositivo.optional(),
+  // deposito soma ao valor atual (pode ser negativo para corrigir).
+  deposito: valor.optional(),
+  targetDate: data.nullish(),
+});
+
+// ---------- Contas a pagar (bills) ----------
+
+const dia = z.number().int().min(1, "dia de 1 a 31").max(31, "dia de 1 a 31");
+
+export const billCreateSchema = z.object({
+  entityId: id,
+  name: nome,
+  amount: valorPositivo,
+  dueDay: dia,
+  recurring: z.boolean().optional(),
+});
+
+export const billUpdateSchema = z.object({
+  id,
+  name: nome.optional(),
+  amount: valorPositivo.optional(),
+  dueDay: dia.optional(),
+  recurring: z.boolean().optional(),
+  // pagar=true marca como pago agora; pagar=false desmarca.
+  pagar: z.boolean().optional(),
+});

@@ -1,6 +1,6 @@
 {
-  "name": "Nossas Finanças",
-  "short_name": "Finanças",
+  "name": "We Finance",
+  "short_name": "We Finance",
   "description": "Controle financeiro da casa, pessoal e PJ",
   "lang": "pt-BR",
   "start_url": "/",
@@ -12,5 +12,14 @@
     { "src": "/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Lancar gasto",
+      "short_name": "Novo gasto",
+      "description": "Lancamento rapido de uma despesa",
+      "url": "/novo",
+      "icons": [{ "src": "/icone-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

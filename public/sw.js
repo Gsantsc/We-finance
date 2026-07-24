@@ -1,8 +1,8 @@
 // Service worker do app.
 //
 // Proposito: deixar o app instalavel (Android exige um service worker com
-// handler de fetch) e dar uma tela decente quando o servidor de casa estiver
-// desligado. NAO e cache de dado financeiro:
+// handler de fetch) e dar uma tela decente quando faltar conexao. NAO e
+// cache de dado financeiro:
 //
 // - /api/*        -> nunca passa por cache. Saldo tem que vir do servidor.
 // - /_next/static -> cache primeiro (nome do arquivo tem hash, nunca muda).
@@ -10,7 +10,7 @@
 //
 // Consequencia: nada de saldo ou pagina logada fica guardado no aparelho.
 
-const CACHE = "nossas-financas-v1";
+const CACHE = "we-finance-v1";
 const OFFLINE = "/offline.html";
 
 self.addEventListener("install", (evento) => {
@@ -57,7 +57,7 @@ self.addEventListener("fetch", (evento) => {
     return;
   }
 
-  // Paginas: rede primeiro. Se o servidor de casa estiver fora, avisa.
+  // Paginas: rede primeiro. Se faltar conexao, avisa.
   evento.respondWith(
     fetch(req).catch(() =>
       caches.match(req).then((achou) => achou || caches.match(OFFLINE))

@@ -19,12 +19,12 @@ async function main() {
   const user2Email = process.env.USER2_EMAIL || "conjuge@exemplo.com";
   const user2Password = process.env.USER2_PASSWORD || "mude-esta-senha";
 
-  const user1 = upsertUser({
+  const user1 = await upsertUser({
     name: user1Name,
     email: user1Email,
     passwordHash: await bcrypt.hash(user1Password, 10),
   });
-  const user2 = upsertUser({
+  const user2 = await upsertUser({
     name: user2Name,
     email: user2Email,
     passwordHash: await bcrypt.hash(user2Password, 10),
@@ -37,7 +37,7 @@ async function main() {
     { name: `PJ - ${user1Name}`, type: "PJ", ownerId: user1.id, color: "#22c55e" },
   ];
   for (const e of entities) {
-    if (!findEntityByName(e.name)) createEntity(e);
+    if (!(await findEntityByName(e.name))) await createEntity(e);
   }
 
   const categories: [string, string, boolean?][] = [
@@ -58,7 +58,7 @@ async function main() {
     ["Outros", "💸"],
   ];
   for (const [name, icon, isIncome] of categories) {
-    upsertCategoryByName(name, icon, !!isIncome);
+    await upsertCategoryByName(name, icon, !!isIncome);
   }
 
   console.log("Seed concluido.");

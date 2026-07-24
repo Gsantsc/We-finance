@@ -30,12 +30,13 @@ export default function LoginPage() {
         onSubmit={handleSubmit}
         className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
       >
-        <h1 className="text-xl font-semibold text-slate-900">Nossas Financas</h1>
+        <h1 className="text-xl font-semibold text-slate-900">We Finance</h1>
         <p className="text-sm text-slate-500">Entre com sua conta para continuar.</p>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-700">Email</label>
+          <label htmlFor="email" className="text-sm font-medium text-slate-700">Email</label>
           <input
+            id="email"
             type="email"
             required
             value={email}
@@ -45,8 +46,9 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-700">Senha</label>
+          <label htmlFor="password" className="text-sm font-medium text-slate-700">Senha</label>
           <input
+            id="password"
             type="password"
             required
             value={password}

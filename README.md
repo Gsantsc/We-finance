@@ -1,12 +1,15 @@
-# Nossas Finanças
+# We Finance
 
-Aplicação **local** de controle financeiro para o casal — feita para organizar,
-no mesmo lugar, as contas **da Casa**, as **Pessoais** de cada um e as **PJ**
-de cada um. Puxa saldos e extratos automaticamente via **Open Finance** (Pluggy /
-Meu Pluggy) e também aceita lançamentos manuais.
+Aplicação de controle financeiro para o casal — feita para organizar, no mesmo
+lugar, as contas **da Casa**, as **Pessoais** de cada um e as **PJ** de cada um.
+Puxa saldos e extratos automaticamente via **Open Finance** (Pluggy / Meu Pluggy)
+e também aceita lançamentos manuais.
 
-Roda inteiramente na sua máquina: os dados ficam num único arquivo SQLite, nada
-vai para nuvem nenhuma.
+Hospedada na Vercel com banco Postgres gerenciado (Supabase) — acessível do PC
+e do celular de qualquer lugar, com login.
+
+> **Nota:** as seções abaixo ainda descrevem a versão anterior (local, SQLite).
+> Uma revisão completa do README está pendente após a migração para Supabase/Vercel.
 
 ---
 
