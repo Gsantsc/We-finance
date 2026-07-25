@@ -10,6 +10,8 @@
 // de /items, /accounts e /transactions no primeiro sync e ajuste este
 // arquivo se algum campo tiver mudado de nome.
 
+import { ApiError } from "./errors";
+
 const PLUGGY_BASE_URL = "https://api.pluggy.ai";
 
 let cachedApiKey: { key: string; expiresAt: number } | null = null;
@@ -81,9 +83,27 @@ export type PluggyTransaction = {
   category?: string;
 };
 
+// A Pluggy NAO tem "listar todos os itens" - cada banco conectado e' um item
+// com id proprio, lido por /items/{id}. Guardamos os ids que interessam em
+// PLUGGY_ITEM_IDS (copiados do painel dashboard.pluggy.ai) e buscamos um a um.
 export async function listItems(): Promise<PluggyItem[]> {
-  const data = await pluggyFetch("/items");
-  return data.results ?? data;
+  const ids = (process.env.PLUGGY_ITEM_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (ids.length === 0) {
+    throw new ApiError(
+      "Nenhum banco configurado para sincronizar. Copie os Item IDs do painel da Pluggy (dashboard.pluggy.ai) para a variavel PLUGGY_ITEM_IDS.",
+      400
+    );
+  }
+
+  const items: PluggyItem[] = [];
+  for (const id of ids) {
+    items.push(await pluggyFetch(`/items/${id}`));
+  }
+  return items;
 }
 
 export async function listAccounts(itemId: string): Promise<PluggyAccount[]> {
