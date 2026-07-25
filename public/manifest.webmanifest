@@ -1,11 +1,15 @@
 {
+  "id": "/",
   "name": "We Finance",
   "short_name": "We Finance",
   "description": "Controle financeiro da casa, pessoal e PJ",
   "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["finance", "productivity"],
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#F4EFE4",
   "theme_color": "#1C3A31",
   "icons": [

@@ -493,7 +493,15 @@ export async function listTransactions(householdId: string, filters: {
       ${filters.accountId ? sql`AND t.account_id = ${filters.accountId}` : sql``}
       ${filters.categoryId ? sql`AND t.category_id = ${filters.categoryId}` : sql``}
       ${filters.entityId ? sql`AND a.entity_id = ${filters.entityId}` : sql``}
-    ORDER BY t.date DESC
+    -- Ordena pelos mais recentes, mas mantem as parcelas de uma mesma compra
+    -- JUNTAS (na data da 1a parcela) e em ordem CRESCENTE (1/N, 2/N, ...).
+    ORDER BY
+      COALESCE(
+        (SELECT MIN(t2.date) FROM transactions t2 WHERE t2.installment_group_id = t.installment_group_id),
+        t.date
+      ) DESC,
+      t.installment_group_id NULLS FIRST,
+      t.installment_number ASC NULLS FIRST
     LIMIT ${limit}
   `;
   return rows.map(shapeJoinedTransaction);

@@ -32,7 +32,7 @@ export default function TrocarSenhaPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6 py-14">
+    <div className="flex min-h-dvh items-center justify-center px-6 py-14">
       <div className="card w-full max-w-sm animate-rise p-8">
         <p className="eyebrow text-honey-deep">Primeiro acesso</p>
         <h1 className="mt-2 font-serif text-2xl text-ink">Crie a sua senha</h1>

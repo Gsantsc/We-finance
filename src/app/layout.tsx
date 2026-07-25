@@ -33,9 +33,11 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   appleWebApp: {
+    // "default": barra de status com texto escuro legivel sobre o marfim do app
+    // (o header verde fica logo abaixo). Evita texto branco invisivel.
     capable: true,
     title: "We Finance",
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
   },
   formatDetection: { telephone: false },
   other: {
@@ -53,7 +55,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={`${serif.variable} ${sans.variable}`}>
-      <body className="min-h-screen bg-ivory text-ink antialiased">
+      <body className="min-h-dvh bg-ivory text-ink antialiased">
         <Providers>{children}</Providers>
         <RegistrarSW />
       </body>

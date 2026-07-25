@@ -76,8 +76,10 @@
     @apply btn border border-pine/15 bg-transparent text-pine hover:bg-pine/5;
   }
 
+  /* text-base (16px) no mobile evita o zoom automatico do iOS ao focar o campo;
+     text-sm (14px) so no desktop. */
   .input {
-    @apply w-full rounded-xl border border-pine/15 bg-white/70 px-3.5 py-2.5 text-sm text-ink
+    @apply w-full rounded-xl border border-pine/15 bg-white/70 px-3.5 py-2.5 text-base sm:text-sm text-ink
            placeholder:text-sage transition-colors
            focus:border-honey focus:outline-none focus:ring-2 focus:ring-honey/25;
   }
