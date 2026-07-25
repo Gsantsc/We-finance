@@ -2,9 +2,15 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { getUserByEmail, getHouseholdIdForUser } from "./repo";
+import { rateLimit } from "./ratelimit";
+
+// Hash de senha inexistente: comparado quando o email nao esta cadastrado,
+// para o tempo de resposta nao entregar se o email existe ou nao.
+const HASH_DUMMY = "$2a$10$XKPYdKY0jXCLl0M6t0iC/uXNvxU3AcXo8W4W6FZ35cW0eLROOMEim";
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  // 7 dias (em vez dos 30 padrao): app financeiro, sessao mais curta.
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   pages: { signIn: "/login" },
   providers: [
     CredentialsProvider({
@@ -15,9 +21,19 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+        const email = credentials.email.trim().toLowerCase();
 
-        const user = await getUserByEmail(credentials.email.trim().toLowerCase());
-        if (!user) return null;
+        // Com a senha inicial padrao sendo publica, brute force de login e o
+        // caminho obvio de sequestro - 5 tentativas por email a cada 15 min.
+        if (!rateLimit(`login:${email}`, 5, 15 * 60 * 1000)) {
+          throw new Error("MUITAS_TENTATIVAS");
+        }
+
+        const user = await getUserByEmail(email);
+        if (!user) {
+          await bcrypt.compare(credentials.password, HASH_DUMMY);
+          return null;
+        }
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;

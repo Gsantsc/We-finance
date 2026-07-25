@@ -34,6 +34,8 @@ function LoginForm() {
       setError(
         res.error === "EMAIL_NAO_VERIFICADO"
           ? "Confirme seu email antes de entrar (veja sua caixa de entrada)."
+          : res.error === "MUITAS_TENTATIVAS"
+          ? "Muitas tentativas. Aguarde 15 minutos e tente de novo."
           : "Email ou senha invalidos."
       );
       return;

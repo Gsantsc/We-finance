@@ -113,41 +113,49 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
 }
 
 // Confere o token, marca o email como verificado e consome o token (uso
-// unico). Numa conta casal, o clique de UM dos dois confirma a casa inteira
-// (o titular ja informou o email do conjuge no cadastro) - por isso retorna
-// a lista de usuarios verificados neste clique, ou null se o token nao
-// existe, expirou ou ja foi usado.
-export async function consumeEmailVerificationToken(rawToken: string): Promise<Row[] | null> {
+// unico). Retorna a lista de usuarios verificados neste clique, ou null se
+// o token nao existe, expirou ou ja foi usado.
+//
+// "cascata" (conta casal: o clique de UM confirma a casa inteira) so vale
+// quando o deploy restringe cadastro por allowlist - com cadastro aberto,
+// confirmariamos um email que o dono nunca clicou, informado por um estranho
+// no campo partnerEmail. Nesse caso cada um confirma o seu.
+export async function consumeEmailVerificationToken(
+  rawToken: string,
+  opts: { cascata: boolean }
+): Promise<Row[] | null> {
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-  const [row] = await sql`SELECT * FROM email_verification_tokens WHERE token_hash = ${tokenHash}`;
-  if (!row) return null;
+  return inTransaction(async (tx) => {
+    const [row] = await tx`SELECT * FROM email_verification_tokens WHERE token_hash = ${tokenHash}`;
+    if (!row) return null;
 
-  await sql`DELETE FROM email_verification_tokens WHERE id = ${row.id}`;
-  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+    await tx`DELETE FROM email_verification_tokens WHERE id = ${row.id}`;
+    if (new Date(row.expires_at).getTime() < Date.now()) return null;
 
-  const ts = nowIso();
-  const householdId = await getHouseholdIdForUser(row.user_id);
-  if (!householdId) {
-    await sql`UPDATE users SET email_verified_at = ${ts} WHERE id = ${row.user_id}`;
+    const ts = nowIso();
+    const householdId = opts.cascata ? await getHouseholdIdForUser(row.user_id) : null;
+    if (!householdId) {
+      await tx`UPDATE users SET email_verified_at = ${ts} WHERE id = ${row.user_id} AND email_verified_at IS NULL`;
+      const user = await getUserById(row.user_id);
+      return user ? [user] : null;
+    }
+
+    const membros = await tx`
+      SELECT u.* FROM users u
+      JOIN household_members hm ON hm.user_id = u.id
+      WHERE hm.household_id = ${householdId}
+    `;
+    const pendentes = membros.filter((m) => !m.email_verified_at);
+    for (const m of pendentes) {
+      await tx`UPDATE users SET email_verified_at = ${ts} WHERE id = ${m.id}`;
+    }
+    if (pendentes.length > 0) return pendentes.map(shapeUser);
+
+    // Token do segundo clique de um casal ja confirmado: nada a fazer, mas o
+    // link continua valendo como "deu certo".
     const user = await getUserById(row.user_id);
     return user ? [user] : null;
-  }
-
-  const membros = await sql`
-    SELECT u.* FROM users u
-    JOIN household_members hm ON hm.user_id = u.id
-    WHERE hm.household_id = ${householdId}
-  `;
-  const pendentes = membros.filter((m) => !m.email_verified_at);
-  for (const m of pendentes) {
-    await sql`UPDATE users SET email_verified_at = ${ts} WHERE id = ${m.id}`;
-  }
-  if (pendentes.length > 0) return pendentes.map(shapeUser);
-
-  // Token do segundo clique de um casal ja confirmado: nada a fazer, mas o
-  // link continua valendo como "deu certo".
-  const user = await getUserById(row.user_id);
-  return user ? [user] : null;
+  });
 }
 
 // ---------- Households ----------
@@ -220,12 +228,21 @@ export async function findEntityByName(householdId: string, name: string): Promi
   return row;
 }
 
+// O dono de uma entidade precisa ser membro da propria casa - sem isso, um
+// ownerId chutado de outro household vazaria o nome daquele usuario no
+// "owner" da listagem.
+async function assertUserInHousehold(householdId: string, userId: string): Promise<void> {
+  const [row] = await sql`SELECT 1 FROM household_members WHERE household_id = ${householdId} AND user_id = ${userId}`;
+  if (!row) throw new ApiError("Usuario nao encontrado nesta casa", 404);
+}
+
 export async function createEntity(householdId: string, e: {
   name: string;
   type: EntityType;
   ownerId?: string | null;
   color?: string;
 }): Promise<Row> {
+  if (e.ownerId) await assertUserInHousehold(householdId, e.ownerId);
   const id = newId();
   await sql`INSERT INTO entities (id, household_id, name, type, owner_id, color, archived, created_at)
     VALUES (${id}, ${householdId}, ${e.name}, ${e.type}, ${e.ownerId ?? null}, ${e.color ?? "#6366f1"}, false, ${nowIso()})`;
@@ -236,6 +253,7 @@ export async function createEntity(householdId: string, e: {
 export async function updateEntity(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM entities WHERE id = ${id} AND household_id = ${householdId}`;
   if (!cur) throw new ApiError("Entidade nao encontrada", 404);
+  if (patch.ownerId) await assertUserInHousehold(householdId, patch.ownerId);
   const next = {
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,

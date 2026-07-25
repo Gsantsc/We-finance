@@ -10,6 +10,7 @@ import {
   getUserByEmail,
 } from "@/lib/repo";
 import { sendVerificationEmail } from "@/lib/email";
+import { rateLimit } from "@/lib/ratelimit";
 
 // Allowlist opcional de admin: se ALLOWED_SIGNUP_EMAILS estiver definida
 // (emails separados por virgula), so esses emails conseguem se cadastrar.
@@ -28,6 +29,12 @@ function emailPermitido(email: string): boolean {
 // e e' obrigado a trocar no primeiro login.
 export async function POST(req: NextRequest) {
   return handle(async () => {
+    // Cadastro dispara emails - sem limite viraria ferramenta de spam.
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "sem-ip";
+    if (!rateLimit(`registrar:${ip}`, 5, 60 * 60 * 1000)) {
+      throw new ApiError("Muitas tentativas de cadastro. Tente mais tarde.", 429);
+    }
+
     const body = validate(registerSchema, await readJson(req));
 
     if (!emailPermitido(body.email)) {

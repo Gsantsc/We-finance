@@ -9,9 +9,28 @@ import {
 } from "@/lib/pluggy";
 import { upsertPluggyAccount, upsertCategoryByName, upsertPluggyTransaction } from "@/lib/repo";
 
+// As credenciais da Pluggy sao GLOBAIS do deploy (um unico client id/secret),
+// entao listItems() enxerga os bancos de todo mundo. Sem esta trava, qualquer
+// usuario autenticado importaria contas e extratos das outras casas para a
+// dele. So os emails em PLUGGY_SYNC_EMAILS podem sincronizar; vazio = ninguem.
+function podeSincronizar(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return (process.env.PLUGGY_SYNC_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.toLowerCase());
+}
+
 export async function POST() {
   try {
-    const { householdId } = await requireHousehold();
+    const { session, householdId } = await requireHousehold();
+    if (!podeSincronizar(session.user.email)) {
+      return NextResponse.json(
+        { ok: false, error: "Sincronizacao nao habilitada para este usuario." },
+        { status: 403 }
+      );
+    }
 
     const items = await listItems();
     let accountsSynced = 0;

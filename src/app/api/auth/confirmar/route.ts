@@ -12,7 +12,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${base}/login?confirmacao=invalida`);
   }
 
-  const verificados = await consumeEmailVerificationToken(token);
+  // Cascata (um clique do casal confirma os dois) so em deploy fechado por
+  // allowlist - ver comentario em consumeEmailVerificationToken.
+  const cascata = (process.env.ALLOWED_SIGNUP_EMAILS ?? "").trim().length > 0;
+  const verificados = await consumeEmailVerificationToken(token, { cascata });
   if (!verificados) {
     return NextResponse.redirect(`${base}/login?confirmacao=expirada`);
   }
