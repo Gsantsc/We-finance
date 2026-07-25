@@ -66,7 +66,9 @@ async function main() {
   console.log(`Usuario 2: ${user2Email}`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
