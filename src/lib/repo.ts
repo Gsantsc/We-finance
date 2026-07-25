@@ -15,7 +15,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { sql, newId, nowIso } from "./db";
 import type postgres from "postgres";
-import { billStatus, goalPercent, nextGoalAmount, percentUsado } from "./rules";
+import { addMonths, billStatus, goalPercent, nextGoalAmount, percentUsado, splitInstallmentCents } from "./rules";
 import { ApiError } from "./errors";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
@@ -416,6 +416,8 @@ async function shapeTransaction(row: Row): Promise<Row> {
     date: row.date,
     isManual: row.is_manual,
     source: row.source,
+    installmentNumber: row.installment_number,
+    installmentTotal: row.installment_total,
     notes: row.notes,
     account: account ? await shapeAccount(account) : null,
     category: category
@@ -437,6 +439,8 @@ function shapeJoinedTransaction(r: Row): Row {
     date: r.date,
     isManual: r.is_manual,
     source: r.source,
+    installmentNumber: r.installment_number,
+    installmentTotal: r.installment_total,
     notes: r.notes,
     account: {
       id: r.account_id,
@@ -510,6 +514,17 @@ async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string,
   await tx`UPDATE accounts SET balance = balance + ${deltaCents}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
 
+// Primeira regra ativa (maior prioridade) que casa com a descricao -> categoryId.
+async function ruleCategoryFor(householdId: string, description: string): Promise<string | null> {
+  const rules = await sql`
+    SELECT * FROM categorization_rules
+    WHERE household_id = ${householdId} AND active = true
+    ORDER BY priority DESC, created_at ASC
+  `;
+  for (const r of rules) if (matchRule(r, description)) return r.category_id;
+  return null;
+}
+
 export async function createTransaction(householdId: string, t: {
   accountId: string;
   description: string;
@@ -523,13 +538,43 @@ export async function createTransaction(householdId: string, t: {
   const id = newId();
   const type = t.amount < 0 ? "expense" : "income";
   const cents = toCents(Math.abs(t.amount));
+  // Sem categoria informada, deixa uma regra pre-preencher (lancamento rapido).
+  const categoryId = t.categoryId ?? (await ruleCategoryFor(householdId, t.description));
   await inTransaction(async (tx) => {
     await tx`INSERT INTO transactions (id, account_id, category_id, description, type, amount_cents, date, source, is_manual, notes, created_by_id, created_at)
-      VALUES (${id}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${type}, ${cents}, ${toDateOnly(t.date)}, 'manual', true, ${t.notes ?? null}, ${t.createdById ?? null}, ${nowIso()})`;
+      VALUES (${id}, ${t.accountId}, ${categoryId}, ${t.description}, ${type}, ${cents}, ${toDateOnly(t.date)}, 'manual', true, ${t.notes ?? null}, ${t.createdById ?? null}, ${nowIso()})`;
     await applyBalanceDelta(tx, t.accountId, toCents(t.amount));
   });
   const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
   return shapeTransaction(row);
+}
+
+// Compra parcelada: uma linha por mes (mesma installment_group_id), o total
+// dividido em centavos com o resto na ultima. Parcelas sao competencias
+// futuras, entao NAO mexem no saldo atual da conta.
+export async function createInstallmentPurchase(householdId: string, t: {
+  accountId: string;
+  description: string;
+  totalAmount: number; // reais, positivo
+  installments: number;
+  date: string;
+  categoryId?: string | null;
+  createdById?: string | null;
+}): Promise<{ groupId: string; count: number }> {
+  await assertAccountInHousehold(householdId, t.accountId);
+  const n = Math.max(2, Math.min(360, Math.trunc(t.installments)));
+  const groupId = newId();
+  const parts = splitInstallmentCents(toCents(Math.abs(t.totalAmount)), n);
+  const baseDate = toDateOnly(t.date);
+  const categoryId = t.categoryId ?? (await ruleCategoryFor(householdId, t.description));
+  await inTransaction(async (tx) => {
+    for (let i = 0; i < n; i++) {
+      await tx`INSERT INTO transactions
+        (id, account_id, category_id, description, type, amount_cents, date, source, installment_group_id, installment_number, installment_total, is_manual, created_by_id, created_at)
+        VALUES (${newId()}, ${t.accountId}, ${categoryId}, ${t.description}, 'expense', ${parts[i]}, ${addMonths(baseDate, i)}, 'manual', ${groupId}, ${i + 1}, ${n}, true, ${t.createdById ?? null}, ${nowIso()})`;
+    }
+  });
+  return { groupId, count: n };
 }
 
 export async function updateTransaction(householdId: string, id: string, patch: Row): Promise<Row> {
@@ -608,6 +653,10 @@ export async function createRule(householdId: string, r: {
     VALUES (${id}, ${householdId}, ${r.matchType}, ${r.pattern}, ${r.categoryId}, ${r.priority ?? 0}, true, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM categorization_rules WHERE id = ${id}`;
   return shapeRule(row);
+}
+
+export async function setRuleActive(householdId: string, id: string, active: boolean): Promise<void> {
+  await sql`UPDATE categorization_rules SET active = ${active} WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
 export async function deleteRule(householdId: string, id: string): Promise<void> {

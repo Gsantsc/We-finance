@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { handle, readJson, requireHousehold, validate } from "@/lib/api";
 import { transactionCreateSchema, transactionUpdateSchema } from "@/lib/schemas";
-import { listTransactions, createTransaction, updateTransaction } from "@/lib/repo";
+import { listTransactions, createTransaction, updateTransaction, createInstallmentPurchase } from "@/lib/repo";
 
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -30,6 +30,20 @@ export async function POST(req: NextRequest) {
     }
 
     const body = validate(transactionCreateSchema, raw);
+
+    // Parcelado: uma linha por mes (o amount informado e' o total da compra).
+    if (body.installments && body.installments > 1) {
+      return createInstallmentPurchase(householdId, {
+        accountId: body.accountId,
+        description: body.description,
+        totalAmount: body.amount,
+        installments: body.installments,
+        date: body.date,
+        categoryId: body.categoryId ?? null,
+        createdById: session.user?.id ?? null,
+      });
+    }
+
     return createTransaction(householdId, {
       accountId: body.accountId,
       description: body.description,

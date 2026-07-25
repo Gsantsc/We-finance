@@ -1,6 +1,28 @@
 // Regras de negocio puras (sem I/O), extraidas de repo.ts e das telas para
 // poderem ser testadas isoladamente do banco e do React.
 
+// Divide um total (em CENTAVOS) em n parcelas inteiras. O resto da divisao vai
+// para a ULTIMA parcela, entao a soma das parcelas bate exatamente com o total
+// (1000,00 em 3x -> 33333, 33333, 33334). Nunca deixa o float resolver.
+export function splitInstallmentCents(totalCents: number, n: number): number[] {
+  const base = Math.floor(totalCents / n);
+  const parts = new Array(n).fill(base);
+  parts[n - 1] += totalCents - base * n;
+  return parts;
+}
+
+// Soma k meses a uma data "YYYY-MM-DD" mantendo o dia (com clamp para o ultimo
+// dia do mes, ex. 31/01 + 1 mes -> 28/02). So string, sem fuso.
+export function addMonths(dateOnly: string, k: number): string {
+  const [y, m, d] = dateOnly.slice(0, 10).split("-").map(Number);
+  const total = y * 12 + (m - 1) + k;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1; // 1-12
+  const ultimoDia = new Date(ny, nm, 0).getDate(); // dias do mes nm
+  const nd = Math.min(d, ultimoDia);
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}`;
+}
+
 export type BillStatus = {
   pagoEsteMes: boolean;
   vencido: boolean;

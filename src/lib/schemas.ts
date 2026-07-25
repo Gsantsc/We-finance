@@ -109,6 +109,17 @@ export const transactionCreateSchema = z.object({
   date: data,
   categoryId: id.nullish(),
   notes: z.string().trim().max(500).nullish(),
+  // >1 cria uma compra parcelada (o "amount" e' o total); ausente/1 = a vista.
+  installments: z.number().int().min(1).max(360).optional(),
+});
+
+// ---------- Regras de categorizacao ----------
+
+export const ruleCreateSchema = z.object({
+  matchType: z.enum(["contains", "starts_with", "regex"]),
+  pattern: z.string().trim().min(1, "informe o texto").max(200),
+  categoryId: id,
+  priority: z.number().int().min(0).max(1000).optional(),
 });
 
 export const transactionUpdateSchema = z.object({

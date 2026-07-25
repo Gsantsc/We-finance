@@ -11,6 +11,7 @@ export const config = {
     "/contas-a-pagar/:path*",
     "/novo/:path*",
     "/importar/:path*",
+    "/regras/:path*",
     "/trocar-senha/:path*",
     "/api/entidades/:path*",
     "/api/contas/:path*",
@@ -21,5 +22,6 @@ export const config = {
     "/api/metas/:path*",
     "/api/contas-a-pagar/:path*",
     "/api/relatorios/:path*",
+    "/api/regras/:path*",
   ],
 };

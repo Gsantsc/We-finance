@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import SinoNotificacoes from "./SinoNotificacoes";
 
 const links = [
   { href: "/dashboard", label: "Painel" },
@@ -13,6 +14,12 @@ const links = [
   { href: "/metas", label: "Metas" },
   { href: "/contas-a-pagar", label: "A pagar" },
   { href: "/entidades", label: "Entidades" },
+];
+
+// Atalhos que nao entram na barra principal (aparecem so no menu mobile).
+const extras = [
+  { href: "/importar", label: "Importar CSV" },
+  { href: "/regras", label: "Regras de categoria" },
 ];
 
 export default function NavBar() {
@@ -75,6 +82,7 @@ export default function NavBar() {
           >
             + Gasto
           </Link>
+          <SinoNotificacoes />
           {primeiroNome && (
             <span className="hidden text-sm text-cream/70 md:inline">Ola, {primeiroNome}</span>
           )}
@@ -106,7 +114,7 @@ export default function NavBar() {
             <Link href="/novo" className="col-span-2 rounded-lg bg-honey px-3 py-2 text-center text-sm font-semibold text-pine-deep">
               + Lancar gasto
             </Link>
-            {links.map((link) => (
+            {[...links, ...extras].map((link) => (
               <Link
                 key={link.href}
                 href={link.href}

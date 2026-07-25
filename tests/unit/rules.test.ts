@@ -1,12 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  addMonths,
   billStatus,
   budgetBarColor,
   goalPercent,
   nextGoalAmount,
   percentUsado,
   sortBills,
+  splitInstallmentCents,
 } from "@/lib/rules";
+
+describe("@regression splitInstallmentCents", () => {
+  it("soma das parcelas bate com o total (resto na ultima)", () => {
+    const p = splitInstallmentCents(100000, 3);
+    expect(p).toEqual([33333, 33333, 33334]);
+    expect(p.reduce((s, x) => s + x, 0)).toBe(100000);
+  });
+  it("divisao exata", () => {
+    expect(splitInstallmentCents(100000, 4)).toEqual([25000, 25000, 25000, 25000]);
+  });
+  it("uma parcela = o total", () => {
+    expect(splitInstallmentCents(4599, 1)).toEqual([4599]);
+  });
+});
+
+describe("@regression addMonths", () => {
+  it("soma meses mantendo o dia", () => {
+    expect(addMonths("2026-01-10", 1)).toBe("2026-02-10");
+    expect(addMonths("2026-01-10", 12)).toBe("2027-01-10");
+  });
+  it("vira o ano", () => {
+    expect(addMonths("2026-11-05", 3)).toBe("2027-02-05");
+  });
+  it("clampa o dia para o fim do mes mais curto", () => {
+    expect(addMonths("2026-01-31", 1)).toBe("2026-02-28");
+  });
+});
 
 describe("@regression billStatus", () => {
   it("marca como vencida quando o dia de hoje passou do vencimento e nao foi paga", () => {
