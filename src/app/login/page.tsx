@@ -1,11 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import Link from "next/link";
+import { signIn, getSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+const avisosConfirmacao: Record<string, { texto: string; ok: boolean }> = {
+  ok: { texto: "Email confirmado! Entre com a senha temporaria Muda@123.", ok: true },
+  expirada: { texto: "Link de confirmacao invalido ou expirado. Faca o cadastro novamente.", ok: false },
+  invalida: { texto: "Link de confirmacao invalido.", ok: false },
+};
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const aviso = avisosConfirmacao[searchParams.get("confirmacao") ?? ""];
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,10 +27,16 @@ export default function LoginPage() {
     const res = await signIn("credentials", { email, password, redirect: false });
     setLoading(false);
     if (res?.error) {
-      setError("Email ou senha invalidos.");
+      setError(
+        res.error === "EMAIL_NAO_VERIFICADO"
+          ? "Confirme seu email antes de entrar (veja sua caixa de entrada)."
+          : "Email ou senha invalidos."
+      );
       return;
     }
-    router.push("/dashboard");
+    // Quem ainda esta na senha temporaria vai direto criar a definitiva.
+    const session = await getSession();
+    router.push(session?.user?.mustChangePassword ? "/trocar-senha" : "/dashboard");
   }
 
   return (
@@ -32,6 +47,16 @@ export default function LoginPage() {
       >
         <h1 className="text-xl font-semibold text-slate-900">We Finance</h1>
         <p className="text-sm text-slate-500">Entre com sua conta para continuar.</p>
+
+        {aviso && (
+          <p
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              aviso.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+            }`}
+          >
+            {aviso.texto}
+          </p>
+        )}
 
         <div className="space-y-1">
           <label htmlFor="email" className="text-sm font-medium text-slate-700">Email</label>
@@ -66,7 +91,22 @@ export default function LoginPage() {
         >
           {loading ? "Entrando..." : "Entrar"}
         </button>
+
+        <p className="text-center text-sm text-slate-500">
+          Nao tem conta?{" "}
+          <Link href="/registrar" className="text-indigo-600 hover:underline">
+            Criar conta
+          </Link>
+        </p>
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

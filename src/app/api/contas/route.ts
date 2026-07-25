@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
-import { handle, readJson, requireSession, validate } from "@/lib/api";
+import { handle, readJson, requireHousehold, validate } from "@/lib/api";
 import { accountCreateSchema, accountUpdateSchema } from "@/lib/schemas";
 import { listAccounts, createAccount, updateAccount } from "@/lib/repo";
 
 export async function GET() {
   return handle(async () => {
-    await requireSession();
-    return listAccounts();
+    const { householdId } = await requireHousehold();
+    return listAccounts(householdId);
   });
 }
 
@@ -14,16 +14,16 @@ export async function GET() {
 // (usado tambem para classificar contas sincronizadas em uma entidade).
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    await requireSession();
+    const { householdId } = await requireHousehold();
     const raw = (await readJson(req)) as any;
 
     if (raw?.id) {
       const body = validate(accountUpdateSchema, raw);
-      return updateAccount(body.id, body);
+      return updateAccount(householdId, body.id, body);
     }
 
     const body = validate(accountCreateSchema, raw);
-    return createAccount({
+    return createAccount(householdId, {
       name: body.name,
       type: body.type,
       entityId: body.entityId ?? null,

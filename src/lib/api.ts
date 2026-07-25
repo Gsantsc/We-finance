@@ -10,19 +10,26 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { ZodSchema } from "zod";
 import { authOptions } from "./auth";
+import { ApiError } from "./errors";
 
-export class ApiError extends Error {
-  status: number;
-  constructor(message: string, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+export { ApiError };
 
 export async function requireSession() {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new ApiError("Nao autenticado", 401);
   return session;
+}
+
+// Igual a requireSession, mas tambem resolve o household do usuario e barra
+// quem ainda esta na senha padrao (deve trocar antes de mexer nos dados).
+export async function requireHousehold() {
+  const session = await requireSession();
+  if (session.user.mustChangePassword) {
+    throw new ApiError("Troque a senha temporaria antes de continuar.", 403);
+  }
+  const householdId = session.user.householdId;
+  if (!householdId) throw new ApiError("Usuario sem casa associada.", 403);
+  return { session, householdId };
 }
 
 export async function readJson(req: Request): Promise<unknown> {
@@ -48,10 +55,12 @@ export async function handle(fn: () => Promise<unknown> | unknown) {
     return NextResponse.json(await fn());
   } catch (err: any) {
     const status = err instanceof ApiError ? err.status : 500;
-    if (status === 500) console.error(err);
-    return NextResponse.json(
-      { error: err?.message ?? "Erro inesperado" },
-      { status }
-    );
+    // Erro inesperado: detalhe so no log do servidor. A mensagem crua pode
+    // expor interna (nomes de tabela do Postgres, config) para o cliente.
+    if (status === 500) {
+      console.error(err);
+      return NextResponse.json({ error: "Erro interno." }, { status: 500 });
+    }
+    return NextResponse.json({ error: err.message }, { status });
   }
 }

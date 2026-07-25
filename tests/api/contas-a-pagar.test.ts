@@ -15,7 +15,7 @@ import { listBills, createBill, updateBill, deleteBill } from "@/lib/repo";
 import { GET, POST, DELETE } from "@/app/api/contas-a-pagar/route";
 
 const URL = "http://localhost/api/contas-a-pagar";
-const session = { user: { id: "user-1" } };
+const session = { user: { id: "user-1", householdId: "house-1", mustChangePassword: false } };
 
 function postRequest(body: unknown) {
   return new NextRequest(URL, {
@@ -38,6 +38,24 @@ describe("@smoke GET /api/contas-a-pagar", () => {
     vi.mocked(getServerSession).mockResolvedValue(null);
     const res = await GET();
     expect(res.status).toBe(401);
+    expect(listBills).not.toHaveBeenCalled();
+  });
+
+  it("retorna 403 enquanto o usuario esta na senha temporaria", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "user-1", householdId: "house-1", mustChangePassword: true },
+    } as any);
+    const res = await GET();
+    expect(res.status).toBe(403);
+    expect(listBills).not.toHaveBeenCalled();
+  });
+
+  it("retorna 403 para usuario sem household", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "user-1", householdId: null, mustChangePassword: false },
+    } as any);
+    const res = await GET();
+    expect(res.status).toBe(403);
     expect(listBills).not.toHaveBeenCalled();
   });
 
@@ -64,6 +82,7 @@ describe("@critical POST /api/contas-a-pagar", () => {
     const res = await POST(postRequest({ entityId: "e1", name: "Aluguel", amount: 100, dueDay: 5 }));
     expect(res.status).toBe(200);
     expect(createBill).toHaveBeenCalledWith(
+      "house-1",
       expect.objectContaining({ entityId: "e1", name: "Aluguel", amount: 100, dueDay: 5 })
     );
     expect(updateBill).not.toHaveBeenCalled();
@@ -74,7 +93,7 @@ describe("@critical POST /api/contas-a-pagar", () => {
     vi.mocked(updateBill).mockReturnValue({ id: "b1", pagoEsteMes: true } as any);
     const res = await POST(postRequest({ id: "b1", pagar: true }));
     expect(res.status).toBe(200);
-    expect(updateBill).toHaveBeenCalledWith("b1", expect.objectContaining({ pagar: true }));
+    expect(updateBill).toHaveBeenCalledWith("house-1", "b1", expect.objectContaining({ pagar: true }));
     expect(createBill).not.toHaveBeenCalled();
   });
 
@@ -105,6 +124,6 @@ describe("@critical DELETE /api/contas-a-pagar", () => {
     vi.mocked(getServerSession).mockResolvedValue(session as any);
     const res = await DELETE(new NextRequest(`${URL}?id=b1`, { method: "DELETE" }));
     expect(res.status).toBe(200);
-    expect(deleteBill).toHaveBeenCalledWith("b1");
+    expect(deleteBill).toHaveBeenCalledWith("house-1", "b1");
   });
 });

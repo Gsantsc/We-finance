@@ -1,9 +1,9 @@
-import { handle, requireSession } from "@/lib/api";
+import { handle, requireHousehold } from "@/lib/api";
 import { listCategories } from "@/lib/repo";
 
 export async function GET() {
   return handle(async () => {
-    await requireSession();
+    await requireHousehold();
     return listCategories();
   });
 }

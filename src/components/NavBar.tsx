@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
@@ -19,6 +20,11 @@ export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session } = useSession();
+
+  // Senha temporaria ainda ativa: nada de navegar pelo app antes de trocar.
+  useEffect(() => {
+    if (session?.user?.mustChangePassword) router.replace("/trocar-senha");
+  }, [session?.user?.mustChangePassword, router]);
 
   // Faz o logout e volta para o login pela mesma origem em que o usuario esta.
   // Se deixassemos o NextAuth redirecionar sozinho (redirect padrao), ele usaria

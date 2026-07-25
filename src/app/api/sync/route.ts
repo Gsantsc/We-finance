@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/api";
+import { requireHousehold } from "@/lib/api";
 import {
   listItems,
   listAccounts,
@@ -11,7 +11,7 @@ import { upsertPluggyAccount, upsertCategoryByName, upsertPluggyTransaction } fr
 
 export async function POST() {
   try {
-    await requireSession();
+    const { householdId } = await requireHousehold();
 
     const items = await listItems();
     let accountsSynced = 0;
@@ -21,7 +21,7 @@ export async function POST() {
       const pluggyAccounts = await listAccounts(item.id);
 
       for (const pa of pluggyAccounts) {
-        const account = await upsertPluggyAccount({
+        const account = await upsertPluggyAccount(householdId, {
           name: pa.name,
           type: mapAccountType(pa.type, pa.subtype),
           balance: normalizeBalance(pa.type, pa.balance),
@@ -54,7 +54,9 @@ export async function POST() {
     return NextResponse.json({ ok: true, accountsSynced, transactionsSynced });
   } catch (err: any) {
     console.error(err);
-    const status = err?.status === 401 ? 401 : 500;
-    return NextResponse.json({ ok: false, error: err.message }, { status });
+    const status = typeof err?.status === "number" ? err.status : 500;
+    // 500: mensagem generica - a crua pode ecoar resposta bruta da Pluggy.
+    const mensagem = status === 500 ? "Erro interno na sincronizacao." : err.message;
+    return NextResponse.json({ ok: false, error: mensagem }, { status });
   }
 }

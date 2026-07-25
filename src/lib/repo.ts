@@ -2,10 +2,18 @@
 // formato que as telas esperam (camelCase, com entity/category/owner
 // aninhados quando faz sentido) - as colunas no banco sao snake_case, entao
 // as funcoes "shape*" fazem essa ponte.
+//
+// Isolamento multi-tenant: entities/accounts/budgets/goals/bills pertencem a
+// um household (household_id). Toda leitura/escrita dessas tabelas exige o
+// householdId de quem esta autenticado (resolvido em requireSession) e as
+// funcoes de update/delete conferem que o registro pertence aquele household
+// antes de mexer - visitante nao pode ler nem adivinhar id de outra casa.
 
+import { randomBytes, createHash } from "node:crypto";
 import { sql, newId, nowIso } from "./db";
 import type postgres from "postgres";
 import { billStatus, goalPercent, nextGoalAmount, percentUsado } from "./rules";
+import { ApiError } from "./errors";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
 export type AccountType =
@@ -33,6 +41,8 @@ function shapeUser(row: Row): Row {
     email: row.email,
     passwordHash: row.password_hash,
     createdAt: row.created_at,
+    emailVerifiedAt: row.email_verified_at,
+    mustChangePassword: row.must_change_password,
   };
 }
 
@@ -46,6 +56,9 @@ export async function getUserById(id: string): Promise<Row | undefined> {
   return row ? shapeUser(row) : undefined;
 }
 
+// Cria/atualiza um usuario ja confiavel (usado pelo "npm run seed", rodado
+// por quem administra o deploy) - fica verificado desde a criacao, sem
+// precisar do fluxo de confirmacao por email.
 export async function upsertUser(u: {
   name: string;
   email: string;
@@ -53,14 +66,105 @@ export async function upsertUser(u: {
 }): Promise<Row> {
   const existing = await getUserByEmail(u.email);
   if (existing) {
-    // Atualiza tambem a senha: e assim que o README manda recuperar acesso
-    // (troca USER*_PASSWORD no .env e roda o seed de novo).
     await sql`UPDATE users SET name = ${u.name}, password_hash = ${u.passwordHash} WHERE id = ${existing.id}`;
     return (await getUserById(existing.id))!;
   }
   const id = newId();
-  await sql`INSERT INTO users (id, name, email, password_hash, created_at) VALUES (${id}, ${u.name}, ${u.email}, ${u.passwordHash}, ${nowIso()})`;
+  const ts = nowIso();
+  await sql`INSERT INTO users (id, name, email, password_hash, created_at, email_verified_at)
+    VALUES (${id}, ${u.name}, ${u.email}, ${u.passwordHash}, ${ts}, ${ts})`;
   return (await getUserById(id))!;
+}
+
+// Cadastro pela tela /registrar: nasce com a senha padrao (Muda@123),
+// obrigado a trocar no primeiro login, e sem email verificado ate clicar no
+// link. Diferente de upsertUser, NAO sobrescreve um email ja existente -
+// cadastro duplicado e erro, nao upsert.
+export async function createPendingUser(u: {
+  name: string;
+  email: string;
+  passwordHash: string;
+}): Promise<Row> {
+  const existing = await getUserByEmail(u.email);
+  if (existing) throw new ApiError("Email ja cadastrado", 409);
+  const id = newId();
+  await sql`INSERT INTO users (id, name, email, password_hash, created_at, must_change_password)
+    VALUES (${id}, ${u.name}, ${u.email}, ${u.passwordHash}, ${nowIso()}, true)`;
+  return (await getUserById(id))!;
+}
+
+// Troca de senha do proprio usuario (tela /trocar-senha). Limpa a obrigacao
+// de trocar - a partir daqui o login segue normal.
+export async function setUserPassword(userId: string, passwordHash: string): Promise<void> {
+  await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false WHERE id = ${userId}`;
+}
+
+// ---------- Verificacao de email ----------
+
+// So o hash do token fica no banco - um vazamento da tabela nao da login a
+// ninguem. O token bruto so existe na hora de montar o link do email.
+export async function createEmailVerificationToken(userId: string): Promise<string> {
+  const rawToken = randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await sql`INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, created_at)
+    VALUES (${newId()}, ${userId}, ${tokenHash}, ${expiresAt}, ${nowIso()})`;
+  return rawToken;
+}
+
+// Confere o token, marca o email como verificado e consome o token (uso
+// unico). Retorna o usuario se deu certo, ou null se o token nao existe,
+// expirou ou ja foi usado.
+export async function consumeEmailVerificationToken(rawToken: string): Promise<Row | null> {
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const [row] = await sql`SELECT * FROM email_verification_tokens WHERE token_hash = ${tokenHash}`;
+  if (!row) return null;
+
+  await sql`DELETE FROM email_verification_tokens WHERE id = ${row.id}`;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+
+  await sql`UPDATE users SET email_verified_at = ${nowIso()} WHERE id = ${row.user_id}`;
+  return (await getUserById(row.user_id)) ?? null;
+}
+
+// ---------- Households ----------
+
+function shapeHousehold(row: Row): Row {
+  return { id: row.id, name: row.name, inviteCode: row.invite_code, createdAt: row.created_at };
+}
+
+function generateInviteCode(): string {
+  return randomBytes(4).toString("hex"); // 8 caracteres, facil de digitar/compartilhar
+}
+
+export async function getHouseholdIdForUser(userId: string): Promise<string | null> {
+  const [row] = await sql`SELECT household_id FROM household_members WHERE user_id = ${userId} LIMIT 1`;
+  return row?.household_id ?? null;
+}
+
+export async function getHousehold(id: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM households WHERE id = ${id}`;
+  return row ? shapeHousehold(row) : undefined;
+}
+
+export async function findHouseholdByInviteCode(code: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM households WHERE invite_code = ${code}`;
+  return row ? shapeHousehold(row) : undefined;
+}
+
+export async function createHousehold(name: string): Promise<Row> {
+  const id = newId();
+  let code = generateInviteCode();
+  while ((await sql`SELECT 1 FROM households WHERE invite_code = ${code}`).length > 0) {
+    code = generateInviteCode();
+  }
+  await sql`INSERT INTO households (id, name, invite_code, created_at) VALUES (${id}, ${name}, ${code}, ${nowIso()})`;
+  return (await getHousehold(id))!;
+}
+
+export async function addHouseholdMember(householdId: string, userId: string): Promise<void> {
+  await sql`INSERT INTO household_members (household_id, user_id, joined_at)
+    VALUES (${householdId}, ${userId}, ${nowIso()}) ON CONFLICT DO NOTHING`;
 }
 
 // ---------- Entities ----------
@@ -83,32 +187,32 @@ async function shapeEntity(row: Row): Promise<Row> {
   };
 }
 
-export async function listEntities(): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM entities WHERE archived = false ORDER BY created_at ASC`;
+export async function listEntities(householdId: string): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM entities WHERE household_id = ${householdId} AND archived = false ORDER BY created_at ASC`;
   return Promise.all(rows.map(shapeEntity));
 }
 
-export async function findEntityByName(name: string): Promise<Row | undefined> {
-  const [row] = await sql`SELECT * FROM entities WHERE name = ${name}`;
+export async function findEntityByName(householdId: string, name: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM entities WHERE household_id = ${householdId} AND name = ${name}`;
   return row;
 }
 
-export async function createEntity(e: {
+export async function createEntity(householdId: string, e: {
   name: string;
   type: EntityType;
   ownerId?: string | null;
   color?: string;
 }): Promise<Row> {
   const id = newId();
-  await sql`INSERT INTO entities (id, name, type, owner_id, color, archived, created_at)
-    VALUES (${id}, ${e.name}, ${e.type}, ${e.ownerId ?? null}, ${e.color ?? "#6366f1"}, false, ${nowIso()})`;
+  await sql`INSERT INTO entities (id, household_id, name, type, owner_id, color, archived, created_at)
+    VALUES (${id}, ${householdId}, ${e.name}, ${e.type}, ${e.ownerId ?? null}, ${e.color ?? "#6366f1"}, false, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM entities WHERE id = ${id}`;
   return shapeEntity(row);
 }
 
-export async function updateEntity(id: string, patch: Row): Promise<Row> {
-  const [cur] = await sql`SELECT * FROM entities WHERE id = ${id}`;
-  if (!cur) throw new Error("Entidade nao encontrada");
+export async function updateEntity(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM entities WHERE id = ${id} AND household_id = ${householdId}`;
+  if (!cur) throw new ApiError("Entidade nao encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,
@@ -149,29 +253,39 @@ async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
   };
 }
 
-export async function listAccounts(): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM accounts WHERE archived = false ORDER BY created_at ASC`;
+// Confere que a entidade informada (se houver) e' realmente do household -
+// evita que alguem associe uma conta/orcamento/meta a entidade de outra casa
+// so por adivinhar o id.
+async function assertEntityInHousehold(householdId: string, entityId: string): Promise<void> {
+  const [row] = await sql`SELECT id FROM entities WHERE id = ${entityId} AND household_id = ${householdId}`;
+  if (!row) throw new ApiError("Entidade nao encontrada", 404);
+}
+
+export async function listAccounts(householdId: string): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM accounts WHERE household_id = ${householdId} AND archived = false ORDER BY created_at ASC`;
   return Promise.all(rows.map((r) => shapeAccount(r)));
 }
 
-export async function createAccount(a: {
+export async function createAccount(householdId: string, a: {
   name: string;
   type: AccountType;
   entityId?: string | null;
   balance?: number;
   institution?: string | null;
 }): Promise<Row> {
+  if (a.entityId) await assertEntityInHousehold(householdId, a.entityId);
   const id = newId();
   const ts = nowIso();
-  await sql`INSERT INTO accounts (id, entity_id, name, type, institution, balance, currency, is_manual, archived, created_at, updated_at)
-    VALUES (${id}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance ?? 0}, 'BRL', true, false, ${ts}, ${ts})`;
+  await sql`INSERT INTO accounts (id, household_id, entity_id, name, type, institution, balance, currency, is_manual, archived, created_at, updated_at)
+    VALUES (${id}, ${householdId}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance ?? 0}, 'BRL', true, false, ${ts}, ${ts})`;
   const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   return shapeAccount(row);
 }
 
-export async function updateAccount(id: string, patch: Row): Promise<Row> {
-  const [cur] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
-  if (!cur) throw new Error("Conta nao encontrada");
+export async function updateAccount(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM accounts WHERE id = ${id} AND household_id = ${householdId}`;
+  if (!cur) throw new ApiError("Conta nao encontrada", 404);
+  if (patch.entityId) await assertEntityInHousehold(householdId, patch.entityId);
   const next = {
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,
@@ -185,7 +299,7 @@ export async function updateAccount(id: string, patch: Row): Promise<Row> {
 }
 
 // Usado no sync: cria/atualiza conta pela pluggyAccountId
-export async function upsertPluggyAccount(a: {
+export async function upsertPluggyAccount(householdId: string, a: {
   name: string;
   type: AccountType;
   balance: number;
@@ -194,7 +308,7 @@ export async function upsertPluggyAccount(a: {
   pluggyItemId: string;
   pluggyAccountId: string;
 }): Promise<Row> {
-  const [existing] = await sql`SELECT * FROM accounts WHERE pluggy_account_id = ${a.pluggyAccountId}`;
+  const [existing] = await sql`SELECT * FROM accounts WHERE pluggy_account_id = ${a.pluggyAccountId} AND household_id = ${householdId}`;
   const ts = nowIso();
   if (existing) {
     await sql`UPDATE accounts SET name = ${a.name}, balance = ${a.balance}, currency = ${a.currency}, institution = ${a.institution ?? null}, pluggy_item_id = ${a.pluggyItemId}, updated_at = ${ts} WHERE id = ${existing.id}`;
@@ -202,13 +316,13 @@ export async function upsertPluggyAccount(a: {
     return shapeAccount(row);
   }
   const id = newId();
-  await sql`INSERT INTO accounts (id, entity_id, name, type, institution, balance, currency, pluggy_item_id, pluggy_account_id, is_manual, archived, created_at, updated_at)
-    VALUES (${id}, NULL, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance}, ${a.currency}, ${a.pluggyItemId}, ${a.pluggyAccountId}, false, false, ${ts}, ${ts})`;
+  await sql`INSERT INTO accounts (id, household_id, entity_id, name, type, institution, balance, currency, pluggy_item_id, pluggy_account_id, is_manual, archived, created_at, updated_at)
+    VALUES (${id}, ${householdId}, NULL, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance}, ${a.currency}, ${a.pluggyItemId}, ${a.pluggyAccountId}, false, false, ${ts}, ${ts})`;
   const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   return shapeAccount(row);
 }
 
-// ---------- Categories ----------
+// ---------- Categories (globais, compartilhadas entre households) ----------
 
 function shapeCategory(row: Row): Row {
   return { id: row.id, name: row.name, icon: row.icon, isIncome: row.is_income };
@@ -229,6 +343,8 @@ export async function upsertCategoryByName(name: string, icon = "💸", isIncome
 }
 
 // ---------- Transactions ----------
+// Nao tem household_id proprio - sempre passam pela conta (account_id), que
+// ja e' do household certo. Toda query filtra via JOIN com accounts.
 
 async function shapeTransaction(row: Row): Promise<Row> {
   const [account] = await sql`SELECT * FROM accounts WHERE id = ${row.account_id}`;
@@ -290,7 +406,7 @@ function shapeJoinedTransaction(r: Row): Row {
   };
 }
 
-export async function listTransactions(filters: {
+export async function listTransactions(householdId: string, filters: {
   entityId?: string | null;
   accountId?: string | null;
   categoryId?: string | null;
@@ -316,7 +432,7 @@ export async function listTransactions(filters: {
     LEFT JOIN entities e ON e.id = a.entity_id
     LEFT JOIN categories c ON c.id = t.category_id
     LEFT JOIN users u ON u.id = t.created_by_id
-    WHERE 1=1
+    WHERE a.household_id = ${householdId}
       ${filters.accountId ? sql`AND t.account_id = ${filters.accountId}` : sql``}
       ${filters.categoryId ? sql`AND t.category_id = ${filters.categoryId}` : sql``}
       ${filters.entityId ? sql`AND a.entity_id = ${filters.entityId}` : sql``}
@@ -326,18 +442,24 @@ export async function listTransactions(filters: {
   return rows.map(shapeJoinedTransaction);
 }
 
+// Confere que a conta informada e' realmente do household.
+async function assertAccountInHousehold(householdId: string, accountId: string): Promise<void> {
+  const [row] = await sql`SELECT id FROM accounts WHERE id = ${accountId} AND household_id = ${householdId}`;
+  if (!row) throw new ApiError("Conta nao encontrada", 404);
+}
+
 // Em conta manual (carteira, dinheiro em especie) o saldo so muda se a gente
 // mexer nele: entao cada lancamento manual soma/subtrai do saldo da conta.
 // Conta vinda da Pluggy nao entra aqui - o saldo dela vem do proprio banco.
 async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, delta: number) {
   if (!delta) return;
   const [account] = await tx`SELECT is_manual FROM accounts WHERE id = ${accountId}`;
-  if (!account) throw new Error("Conta nao encontrada");
+  if (!account) throw new ApiError("Conta nao encontrada", 404);
   if (!account.is_manual) return;
   await tx`UPDATE accounts SET balance = balance + ${delta}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
 
-export async function createTransaction(t: {
+export async function createTransaction(householdId: string, t: {
   accountId: string;
   description: string;
   amount: number;
@@ -346,6 +468,7 @@ export async function createTransaction(t: {
   notes?: string | null;
   createdById?: string | null;
 }): Promise<Row> {
+  await assertAccountInHousehold(householdId, t.accountId);
   const id = newId();
   await inTransaction(async (tx) => {
     await tx`INSERT INTO transactions (id, account_id, category_id, description, amount, date, is_manual, notes, created_by_id, created_at)
@@ -356,9 +479,12 @@ export async function createTransaction(t: {
   return shapeTransaction(row);
 }
 
-export async function updateTransaction(id: string, patch: Row): Promise<Row> {
-  const [cur] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
-  if (!cur) throw new Error("Transacao nao encontrada");
+export async function updateTransaction(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`
+    SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.id = ${id} AND a.household_id = ${householdId}
+  `;
+  if (!cur) throw new ApiError("Transacao nao encontrada", 404);
   const next = {
     description: patch.description ?? cur.description,
     amount: patch.amount === undefined ? cur.amount : patch.amount,
@@ -375,7 +501,9 @@ export async function updateTransaction(id: string, patch: Row): Promise<Row> {
   return shapeTransaction(row);
 }
 
-// Usado no sync: cria/atualiza transacao pela pluggyTransactionId
+// Usado no sync: cria/atualiza transacao pela pluggyTransactionId. A conta
+// (accountId) ja vem de upsertPluggyAccount, que so opera dentro do household
+// de quem chamou o sync - nao precisa reconferir aqui.
 export async function upsertPluggyTransaction(t: {
   accountId: string;
   description: string;
@@ -420,13 +548,13 @@ async function gastoDoMes(entityId: string, categoryId: string, chave: string): 
 
 // ---------- Budgets (orcamento por categoria) ----------
 
-export async function listBudgets(month: number, year: number): Promise<Row[]> {
+export async function listBudgets(householdId: string, month: number, year: number): Promise<Row[]> {
   const chave = chaveMes(month, year);
   const rows = await sql`
     SELECT b.*, c.name AS c_name, c.icon AS c_icon
     FROM budgets b
     JOIN categories c ON c.id = b.category_id
-    WHERE b.month = ${month} AND b.year = ${year}
+    WHERE b.household_id = ${householdId} AND b.month = ${month} AND b.year = ${year}
     ORDER BY c.name ASC
   `;
 
@@ -452,15 +580,16 @@ export async function listBudgets(month: number, year: number): Promise<Row[]> {
 
 // Cria ou atualiza o orcamento daquela entidade+categoria+mes (a tabela tem
 // UNIQUE nesses campos, entao mexer no mesmo mes so troca o valor).
-export async function upsertBudget(b: {
+export async function upsertBudget(householdId: string, b: {
   entityId: string;
   categoryId: string;
   month: number;
   year: number;
   amount: number;
 }): Promise<Row> {
+  await assertEntityInHousehold(householdId, b.entityId);
   const [existente] = await sql`
-    SELECT id FROM budgets WHERE entity_id = ${b.entityId} AND category_id = ${b.categoryId} AND month = ${b.month} AND year = ${b.year}
+    SELECT id FROM budgets WHERE household_id = ${householdId} AND entity_id = ${b.entityId} AND category_id = ${b.categoryId} AND month = ${b.month} AND year = ${b.year}
   `;
 
   if (existente) {
@@ -469,14 +598,14 @@ export async function upsertBudget(b: {
     return row;
   }
   const id = newId();
-  await sql`INSERT INTO budgets (id, entity_id, category_id, month, year, amount, created_at)
-    VALUES (${id}, ${b.entityId}, ${b.categoryId}, ${b.month}, ${b.year}, ${b.amount}, ${nowIso()})`;
+  await sql`INSERT INTO budgets (id, household_id, entity_id, category_id, month, year, amount, created_at)
+    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.categoryId}, ${b.month}, ${b.year}, ${b.amount}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM budgets WHERE id = ${id}`;
   return row;
 }
 
-export async function deleteBudget(id: string): Promise<void> {
-  await sql`DELETE FROM budgets WHERE id = ${id}`;
+export async function deleteBudget(householdId: string, id: string): Promise<void> {
+  await sql`DELETE FROM budgets WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
 // ---------- Goals (metas de economia) ----------
@@ -498,28 +627,29 @@ async function shapeGoal(row: Row): Promise<Row> {
   };
 }
 
-export async function listGoals(): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM goals ORDER BY created_at ASC`;
+export async function listGoals(householdId: string): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM goals WHERE household_id = ${householdId} ORDER BY created_at ASC`;
   return Promise.all(rows.map(shapeGoal));
 }
 
-export async function createGoal(g: {
+export async function createGoal(householdId: string, g: {
   entityId: string;
   name: string;
   targetAmount: number;
   currentAmount?: number;
   targetDate?: string | null;
 }): Promise<Row> {
+  await assertEntityInHousehold(householdId, g.entityId);
   const id = newId();
-  await sql`INSERT INTO goals (id, entity_id, name, target_amount, current_amount, target_date, created_at)
-    VALUES (${id}, ${g.entityId}, ${g.name}, ${g.targetAmount}, ${g.currentAmount ?? 0}, ${g.targetDate ?? null}, ${nowIso()})`;
+  await sql`INSERT INTO goals (id, household_id, entity_id, name, target_amount, current_amount, target_date, created_at)
+    VALUES (${id}, ${householdId}, ${g.entityId}, ${g.name}, ${g.targetAmount}, ${g.currentAmount ?? 0}, ${g.targetDate ?? null}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
   return shapeGoal(row);
 }
 
-export async function updateGoal(id: string, patch: Row): Promise<Row> {
-  const [cur] = await sql`SELECT * FROM goals WHERE id = ${id}`;
-  if (!cur) throw new Error("Meta nao encontrada");
+export async function updateGoal(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
+  if (!cur) throw new ApiError("Meta nao encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
     targetAmount: patch.targetAmount === undefined ? cur.target_amount : patch.targetAmount,
@@ -531,8 +661,8 @@ export async function updateGoal(id: string, patch: Row): Promise<Row> {
   return shapeGoal(row);
 }
 
-export async function deleteGoal(id: string): Promise<void> {
-  await sql`DELETE FROM goals WHERE id = ${id}`;
+export async function deleteGoal(householdId: string, id: string): Promise<void> {
+  await sql`DELETE FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
 // ---------- Bills (contas a pagar / lembretes) ----------
@@ -551,28 +681,29 @@ async function shapeBill(row: Row, hoje = new Date()): Promise<Row> {
   };
 }
 
-export async function listBills(): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM bills ORDER BY due_day ASC`;
+export async function listBills(householdId: string): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM bills WHERE household_id = ${householdId} ORDER BY due_day ASC`;
   return Promise.all(rows.map((r) => shapeBill(r)));
 }
 
-export async function createBill(b: {
+export async function createBill(householdId: string, b: {
   entityId: string;
   name: string;
   amount: number;
   dueDay: number;
   recurring?: boolean;
 }): Promise<Row> {
+  await assertEntityInHousehold(householdId, b.entityId);
   const id = newId();
-  await sql`INSERT INTO bills (id, entity_id, name, amount, due_day, recurring, created_at)
-    VALUES (${id}, ${b.entityId}, ${b.name}, ${b.amount}, ${b.dueDay}, ${b.recurring !== false}, ${nowIso()})`;
+  await sql`INSERT INTO bills (id, household_id, entity_id, name, amount, due_day, recurring, created_at)
+    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.name}, ${b.amount}, ${b.dueDay}, ${b.recurring !== false}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM bills WHERE id = ${id}`;
   return shapeBill(row);
 }
 
-export async function updateBill(id: string, patch: Row): Promise<Row> {
-  const [cur] = await sql`SELECT * FROM bills WHERE id = ${id}`;
-  if (!cur) throw new Error("Conta a pagar nao encontrada");
+export async function updateBill(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`SELECT * FROM bills WHERE id = ${id} AND household_id = ${householdId}`;
+  if (!cur) throw new ApiError("Conta a pagar nao encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
     amount: patch.amount === undefined ? cur.amount : patch.amount,
@@ -593,15 +724,15 @@ export async function updateBill(id: string, patch: Row): Promise<Row> {
   return shapeBill(row);
 }
 
-export async function deleteBill(id: string): Promise<void> {
-  await sql`DELETE FROM bills WHERE id = ${id}`;
+export async function deleteBill(householdId: string, id: string): Promise<void> {
+  await sql`DELETE FROM bills WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
 // ---------- Relatorios (fase 4) ----------
 
 // Receita x despesa dos ultimos N meses (para o grafico de barras). Opcionalmente
 // filtra por entidade.
-export async function monthlySummary(months = 6, entityId?: string | null): Promise<Row[]> {
+export async function monthlySummary(householdId: string, months = 6, entityId?: string | null): Promise<Row[]> {
   const limite = Math.min(Math.max(months, 1), 36);
   const rows = await sql`
     SELECT substr(t.date, 1, 7) AS mes,
@@ -609,7 +740,7 @@ export async function monthlySummary(months = 6, entityId?: string | null): Prom
            COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS despesa
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
-    WHERE 1=1 ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
+    WHERE a.household_id = ${householdId} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
     GROUP BY mes
     ORDER BY mes DESC
     LIMIT ${limite}
@@ -628,7 +759,7 @@ export async function monthlySummary(months = 6, entityId?: string | null): Prom
 }
 
 // Gasto por categoria num mes (para o grafico de composicao das despesas).
-export async function spendingByCategory(month: number, year: number, entityId?: string | null): Promise<Row[]> {
+export async function spendingByCategory(householdId: string, month: number, year: number, entityId?: string | null): Promise<Row[]> {
   const chave = chaveMes(month, year);
   const rows = await sql`
     SELECT c.id AS id, c.name AS name, c.icon AS icon,
@@ -636,7 +767,7 @@ export async function spendingByCategory(month: number, year: number, entityId?:
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
     JOIN categories c ON c.id = t.category_id
-    WHERE t.amount < 0 AND substr(t.date, 1, 7) = ${chave} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
+    WHERE t.amount < 0 AND a.household_id = ${householdId} AND substr(t.date, 1, 7) = ${chave} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
     GROUP BY c.id, c.name, c.icon
     HAVING COALESCE(SUM(-t.amount), 0) > 0
     ORDER BY gasto DESC

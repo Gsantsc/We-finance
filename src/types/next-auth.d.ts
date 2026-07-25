@@ -6,6 +6,8 @@ declare module "next-auth" {
       id: string;
       name?: string | null;
       email?: string | null;
+      householdId: string | null;
+      mustChangePassword: boolean;
     };
   }
 }

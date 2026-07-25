@@ -15,7 +15,7 @@ import { listGoals, createGoal, updateGoal, deleteGoal } from "@/lib/repo";
 import { GET, POST, DELETE } from "@/app/api/metas/route";
 
 const URL = "http://localhost/api/metas";
-const session = { user: { id: "user-1" } };
+const session = { user: { id: "user-1", householdId: "house-1", mustChangePassword: false } };
 
 function postRequest(body: unknown) {
   return new NextRequest(URL, {
@@ -49,6 +49,7 @@ describe("@critical POST /api/metas", () => {
     const res = await POST(postRequest({ entityId: "e1", name: "Viagem", targetAmount: 1000 }));
     expect(res.status).toBe(200);
     expect(createGoal).toHaveBeenCalledWith(
+      "house-1",
       expect.objectContaining({ entityId: "e1", name: "Viagem", targetAmount: 1000 })
     );
     expect(updateGoal).not.toHaveBeenCalled();
@@ -59,7 +60,7 @@ describe("@critical POST /api/metas", () => {
     vi.mocked(updateGoal).mockReturnValue({ id: "g1", currentAmount: 150 } as any);
     const res = await POST(postRequest({ id: "g1", deposito: 50 }));
     expect(res.status).toBe(200);
-    expect(updateGoal).toHaveBeenCalledWith("g1", expect.objectContaining({ deposito: 50 }));
+    expect(updateGoal).toHaveBeenCalledWith("house-1", "g1", expect.objectContaining({ deposito: 50 }));
     expect(createGoal).not.toHaveBeenCalled();
   });
 

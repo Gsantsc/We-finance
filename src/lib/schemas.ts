@@ -24,6 +24,45 @@ const data = z
   .string()
   .refine((v) => !Number.isNaN(Date.parse(v)), "data invalida");
 
+// ---------- Cadastro ----------
+
+// Senha inicial de todo cadastro novo; o primeiro login obriga a troca.
+export const SENHA_PADRAO = "Muda@123";
+
+const email = z.string().trim().toLowerCase().email("email invalido");
+
+// Conta "CASAL" cadastra duas pessoas de uma vez (ambas recebem o email de
+// confirmacao); "UNICA" cadastra so o titular. Ninguem escolhe senha aqui -
+// todo mundo nasce com a senha padrao e troca no primeiro login.
+export const registerSchema = z
+  .object({
+    tipo: z.enum(["CASAL", "UNICA"]),
+    name: nome,
+    email,
+    partnerName: nome.optional(),
+    partnerEmail: email.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.tipo === "CASAL") {
+      if (!v.partnerName)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerName"], message: "obrigatorio para conta casal" });
+      if (!v.partnerEmail)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerEmail"], message: "obrigatorio para conta casal" });
+      if (v.partnerEmail && v.partnerEmail === v.email)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerEmail"], message: "use um email diferente do titular" });
+    }
+  });
+
+// Senha forte na troca: minimo 8, com letra maiuscula, minuscula e numero.
+export const changePasswordSchema = z.object({
+  newPassword: z
+    .string()
+    .min(8, "minimo 8 caracteres")
+    .regex(/[a-z]/, "precisa de letra minuscula")
+    .regex(/[A-Z]/, "precisa de letra maiuscula")
+    .regex(/[0-9]/, "precisa de numero"),
+});
+
 // ---------- Entidades ----------
 
 export const entityCreateSchema = z.object({

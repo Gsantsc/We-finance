@@ -7,6 +7,9 @@ import {
   findEntityByName,
   createEntity,
   upsertCategoryByName,
+  getHouseholdIdForUser,
+  createHousehold,
+  addHouseholdMember,
   type EntityType,
 } from "../src/lib/repo";
 
@@ -30,6 +33,13 @@ async function main() {
     passwordHash: await bcrypt.hash(user2Password, 10),
   });
 
+  // Household compartilhado dos dois usuarios do seed.
+  const existente = await getHouseholdIdForUser(user1.id);
+  const householdId: string =
+    existente ?? (await createHousehold(`Casa de ${user1Name} e ${user2Name}`)).id;
+  await addHouseholdMember(householdId, user1.id);
+  await addHouseholdMember(householdId, user2.id);
+
   const entities: { name: string; type: EntityType; ownerId?: string; color: string }[] = [
     { name: "Casa", type: "CASA", color: "#6366f1" },
     { name: `Pessoal - ${user1Name}`, type: "PESSOAL", ownerId: user1.id, color: "#0ea5e9" },
@@ -37,7 +47,7 @@ async function main() {
     { name: `PJ - ${user1Name}`, type: "PJ", ownerId: user1.id, color: "#22c55e" },
   ];
   for (const e of entities) {
-    if (!(await findEntityByName(e.name))) await createEntity(e);
+    if (!(await findEntityByName(householdId, e.name))) await createEntity(householdId, e);
   }
 
   const categories: [string, string, boolean?][] = [

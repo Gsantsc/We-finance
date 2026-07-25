@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
-import { handle, readJson, requireSession, validate } from "@/lib/api";
+import { handle, readJson, requireHousehold, validate } from "@/lib/api";
 import { transactionCreateSchema, transactionUpdateSchema } from "@/lib/schemas";
 import { listTransactions, createTransaction, updateTransaction } from "@/lib/repo";
 
 export async function GET(req: NextRequest) {
   return handle(async () => {
-    await requireSession();
+    const { householdId } = await requireHousehold();
     const { searchParams } = new URL(req.url);
     const limitParam = Number(searchParams.get("limit"));
 
-    return listTransactions({
+    return listTransactions(householdId, {
       entityId: searchParams.get("entityId"),
       accountId: searchParams.get("accountId"),
       categoryId: searchParams.get("categoryId"),
@@ -21,16 +21,16 @@ export async function GET(req: NextRequest) {
 // Cria uma transacao manual, ou atualiza uma existente se "id" vier no corpo.
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const session = await requireSession();
+    const { session, householdId } = await requireHousehold();
     const raw = (await readJson(req)) as any;
 
     if (raw?.id) {
       const body = validate(transactionUpdateSchema, raw);
-      return updateTransaction(body.id, body);
+      return updateTransaction(householdId, body.id, body);
     }
 
     const body = validate(transactionCreateSchema, raw);
-    return createTransaction({
+    return createTransaction(householdId, {
       accountId: body.accountId,
       description: body.description,
       amount: body.amount,

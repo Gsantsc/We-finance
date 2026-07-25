@@ -14,7 +14,7 @@ import { listBudgets, upsertBudget, deleteBudget } from "@/lib/repo";
 import { GET, POST, DELETE } from "@/app/api/orcamentos/route";
 
 const URL = "http://localhost/api/orcamentos";
-const session = { user: { id: "user-1" } };
+const session = { user: { id: "user-1", householdId: "house-1", mustChangePassword: false } };
 
 beforeEach(() => {
   vi.mocked(getServerSession).mockReset();
@@ -35,7 +35,7 @@ describe("@smoke GET /api/orcamentos", () => {
     vi.mocked(getServerSession).mockResolvedValue(session as any);
     vi.mocked(listBudgets).mockReturnValue([] as any);
     await GET(new NextRequest(`${URL}?month=3&year=2027`));
-    expect(listBudgets).toHaveBeenCalledWith(3, 2027);
+    expect(listBudgets).toHaveBeenCalledWith("house-1", 3, 2027);
   });
 });
 
