@@ -5,9 +5,12 @@
 //
 // Isolamento multi-tenant: entities/accounts/budgets/goals/bills pertencem a
 // um household (household_id). Toda leitura/escrita dessas tabelas exige o
-// householdId de quem esta autenticado (resolvido em requireSession) e as
-// funcoes de update/delete conferem que o registro pertence aquele household
-// antes de mexer - visitante nao pode ler nem adivinhar id de outra casa.
+// householdId de quem esta autenticado e as funcoes de update/delete conferem
+// que o registro pertence aquele household antes de mexer.
+//
+// DINHEIRO: guardado em CENTAVOS (bigint) no banco - somar float acumula erro.
+// A API/UI continua falando em REAIS (number); toCents/toReais fazem a ponte
+// na borda deste modulo, entao as telas nao precisam saber de centavos.
 
 import { randomBytes, createHash } from "node:crypto";
 import { sql, newId, nowIso } from "./db";
@@ -26,8 +29,29 @@ export type AccountType =
 
 type Row = Record<string, any>;
 
+// Reais (com casas) -> centavos inteiros. postgres.js devolve bigint como
+// string, por isso toReais normaliza com Number antes de dividir.
+function toCents(reais: number): number {
+  return Math.round(reais * 100);
+}
+function toReais(cents: number | bigint | string | null | undefined): number {
+  return Number(cents ?? 0) / 100;
+}
+// Descricao normalizada para o fingerprint de dedup do import.
+function normalizeDesc(s: string): string {
+  return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Data de competencia guardada como "YYYY-MM-DD" (dia, sem hora/fuso). Guardar
+// o instante ISO fazia a data aparecer um dia antes em fuso atras do UTC.
+function toDateOnly(s: string): string {
+  const iso = String(s).slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
+}
+
 // Agrupa varias escritas numa transacao so: ou tudo grava, ou nada grava.
-// Usado onde um lancamento mexe em mais de uma tabela (transacao + saldo).
 function inTransaction<T>(fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
   return sql.begin(fn) as Promise<T>;
 }
@@ -57,8 +81,7 @@ export async function getUserById(id: string): Promise<Row | undefined> {
 }
 
 // Cria/atualiza um usuario ja confiavel (usado pelo "npm run seed", rodado
-// por quem administra o deploy) - fica verificado desde a criacao, sem
-// precisar do fluxo de confirmacao por email.
+// por quem administra o deploy) - verificado desde a criacao.
 export async function upsertUser(u: {
   name: string;
   email: string;
@@ -76,10 +99,8 @@ export async function upsertUser(u: {
   return (await getUserById(id))!;
 }
 
-// Cadastro pela tela /registrar: nasce com a senha padrao (Muda@123),
-// obrigado a trocar no primeiro login, e sem email verificado ate clicar no
-// link. Diferente de upsertUser, NAO sobrescreve um email ja existente -
-// cadastro duplicado e erro, nao upsert.
+// Cadastro pela tela /registrar: nasce com a senha padrao, obrigado a trocar
+// no primeiro login, e sem email verificado ate clicar no link.
 export async function createPendingUser(u: {
   name: string;
   email: string;
@@ -93,16 +114,12 @@ export async function createPendingUser(u: {
   return (await getUserById(id))!;
 }
 
-// Troca de senha do proprio usuario (tela /trocar-senha). Limpa a obrigacao
-// de trocar - a partir daqui o login segue normal.
 export async function setUserPassword(userId: string, passwordHash: string): Promise<void> {
   await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false WHERE id = ${userId}`;
 }
 
 // ---------- Verificacao de email ----------
 
-// So o hash do token fica no banco - um vazamento da tabela nao da login a
-// ninguem. O token bruto so existe na hora de montar o link do email.
 export async function createEmailVerificationToken(userId: string): Promise<string> {
   const rawToken = randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
@@ -112,14 +129,6 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
   return rawToken;
 }
 
-// Confere o token, marca o email como verificado e consome o token (uso
-// unico). Retorna a lista de usuarios verificados neste clique, ou null se
-// o token nao existe, expirou ou ja foi usado.
-//
-// "cascata" (conta casal: o clique de UM confirma a casa inteira) so vale
-// quando o deploy restringe cadastro por allowlist - com cadastro aberto,
-// confirmariamos um email que o dono nunca clicou, informado por um estranho
-// no campo partnerEmail. Nesse caso cada um confirma o seu.
 export async function consumeEmailVerificationToken(
   rawToken: string,
   opts: { cascata: boolean }
@@ -151,8 +160,6 @@ export async function consumeEmailVerificationToken(
     }
     if (pendentes.length > 0) return pendentes.map(shapeUser);
 
-    // Token do segundo clique de um casal ja confirmado: nada a fazer, mas o
-    // link continua valendo como "deu certo".
     const user = await getUserById(row.user_id);
     return user ? [user] : null;
   });
@@ -165,7 +172,7 @@ function shapeHousehold(row: Row): Row {
 }
 
 function generateInviteCode(): string {
-  return randomBytes(4).toString("hex"); // 8 caracteres, facil de digitar/compartilhar
+  return randomBytes(4).toString("hex");
 }
 
 export async function getHouseholdIdForUser(userId: string): Promise<string | null> {
@@ -203,7 +210,6 @@ export async function addHouseholdMember(householdId: string, userId: string): P
 async function shapeEntity(row: Row): Promise<Row> {
   const owner = row.owner_id ? await getUserById(row.owner_id) : null;
   const accountRows = await sql`SELECT * FROM accounts WHERE entity_id = ${row.id} AND archived = false`;
-  // A entidade das contas ja e esta - passamos adiante para nao consultar de novo.
   const resumo = { id: row.id, name: row.name, type: row.type, color: row.color };
   return {
     id: row.id,
@@ -228,9 +234,6 @@ export async function findEntityByName(householdId: string, name: string): Promi
   return row;
 }
 
-// O dono de uma entidade precisa ser membro da propria casa - sem isso, um
-// ownerId chutado de outro household vazaria o nome daquele usuario no
-// "owner" da listagem.
 async function assertUserInHousehold(householdId: string, userId: string): Promise<void> {
   const [row] = await sql`SELECT 1 FROM household_members WHERE household_id = ${householdId} AND user_id = ${userId}`;
   if (!row) throw new ApiError("Usuario nao encontrado nesta casa", 404);
@@ -284,7 +287,7 @@ async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
     name: row.name,
     type: row.type,
     institution: row.institution,
-    balance: row.balance,
+    balance: toReais(row.balance),
     currency: row.currency,
     pluggyItemId: row.pluggy_item_id,
     pluggyAccountId: row.pluggy_account_id,
@@ -294,9 +297,6 @@ async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
   };
 }
 
-// Confere que a entidade informada (se houver) e' realmente do household -
-// evita que alguem associe uma conta/orcamento/meta a entidade de outra casa
-// so por adivinhar o id.
 async function assertEntityInHousehold(householdId: string, entityId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM entities WHERE id = ${entityId} AND household_id = ${householdId}`;
   if (!row) throw new ApiError("Entidade nao encontrada", 404);
@@ -318,7 +318,7 @@ export async function createAccount(householdId: string, a: {
   const id = newId();
   const ts = nowIso();
   await sql`INSERT INTO accounts (id, household_id, entity_id, name, type, institution, balance, currency, is_manual, archived, created_at, updated_at)
-    VALUES (${id}, ${householdId}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance ?? 0}, 'BRL', true, false, ${ts}, ${ts})`;
+    VALUES (${id}, ${householdId}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${toCents(a.balance ?? 0)}, 'BRL', true, false, ${ts}, ${ts})`;
   const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   return shapeAccount(row);
 }
@@ -331,7 +331,7 @@ export async function updateAccount(householdId: string, id: string, patch: Row)
     name: patch.name ?? cur.name,
     type: patch.type ?? cur.type,
     entityId: patch.entityId === undefined ? cur.entity_id : patch.entityId,
-    balance: patch.balance === undefined ? cur.balance : patch.balance,
+    balance: patch.balance === undefined ? Number(cur.balance) : toCents(patch.balance),
     archived: patch.archived === undefined ? cur.archived : !!patch.archived,
   };
   await sql`UPDATE accounts SET name = ${next.name}, type = ${next.type}, entity_id = ${next.entityId}, balance = ${next.balance}, archived = ${next.archived}, updated_at = ${nowIso()} WHERE id = ${id}`;
@@ -352,13 +352,13 @@ export async function upsertPluggyAccount(householdId: string, a: {
   const [existing] = await sql`SELECT * FROM accounts WHERE pluggy_account_id = ${a.pluggyAccountId} AND household_id = ${householdId}`;
   const ts = nowIso();
   if (existing) {
-    await sql`UPDATE accounts SET name = ${a.name}, balance = ${a.balance}, currency = ${a.currency}, institution = ${a.institution ?? null}, pluggy_item_id = ${a.pluggyItemId}, updated_at = ${ts} WHERE id = ${existing.id}`;
+    await sql`UPDATE accounts SET name = ${a.name}, balance = ${toCents(a.balance)}, currency = ${a.currency}, institution = ${a.institution ?? null}, pluggy_item_id = ${a.pluggyItemId}, updated_at = ${ts} WHERE id = ${existing.id}`;
     const [row] = await sql`SELECT * FROM accounts WHERE id = ${existing.id}`;
     return shapeAccount(row);
   }
   const id = newId();
   await sql`INSERT INTO accounts (id, household_id, entity_id, name, type, institution, balance, currency, pluggy_item_id, pluggy_account_id, is_manual, archived, created_at, updated_at)
-    VALUES (${id}, ${householdId}, NULL, ${a.name}, ${a.type}, ${a.institution ?? null}, ${a.balance}, ${a.currency}, ${a.pluggyItemId}, ${a.pluggyAccountId}, false, false, ${ts}, ${ts})`;
+    VALUES (${id}, ${householdId}, NULL, ${a.name}, ${a.type}, ${a.institution ?? null}, ${toCents(a.balance)}, ${a.currency}, ${a.pluggyItemId}, ${a.pluggyAccountId}, false, false, ${ts}, ${ts})`;
   const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   return shapeAccount(row);
 }
@@ -374,6 +374,11 @@ export async function listCategories(): Promise<Row[]> {
   return rows.map(shapeCategory);
 }
 
+export async function findCategoryByName(name: string): Promise<Row | undefined> {
+  const [row] = await sql`SELECT * FROM categories WHERE lower(name) = ${name.trim().toLowerCase()} LIMIT 1`;
+  return row ? shapeCategory(row) : undefined;
+}
+
 export async function upsertCategoryByName(name: string, icon = "💸", isIncome = false): Promise<Row> {
   const [existing] = await sql`SELECT * FROM categories WHERE name = ${name}`;
   if (existing) return shapeCategory(existing);
@@ -384,8 +389,14 @@ export async function upsertCategoryByName(name: string, icon = "💸", isIncome
 }
 
 // ---------- Transactions ----------
-// Nao tem household_id proprio - sempre passam pela conta (account_id), que
-// ja e' do household certo. Toda query filtra via JOIN com accounts.
+// No banco: type ('income'|'expense') + amount_cents (positivo). Para a UI
+// expomos "amount" em REAIS com SINAL (despesa negativa) - contrato antigo.
+
+// amount (reais, com sinal) a partir de type + amount_cents (positivo, centavos).
+function amountReaisSigned(type: string, amountCents: number | string): number {
+  const cents = Number(amountCents);
+  return toReais(type === "expense" ? -cents : cents);
+}
 
 async function shapeTransaction(row: Row): Promise<Row> {
   const [account] = await sql`SELECT * FROM accounts WHERE id = ${row.account_id}`;
@@ -400,9 +411,11 @@ async function shapeTransaction(row: Row): Promise<Row> {
     accountId: row.account_id,
     categoryId: row.category_id,
     description: row.description,
-    amount: row.amount,
+    amount: amountReaisSigned(row.type, row.amount_cents),
+    type: row.type,
     date: row.date,
     isManual: row.is_manual,
+    source: row.source,
     notes: row.notes,
     account: account ? await shapeAccount(account) : null,
     category: category
@@ -412,17 +425,18 @@ async function shapeTransaction(row: Row): Promise<Row> {
   };
 }
 
-// A listagem traz conta, entidade, categoria e autor num JOIN so, em vez de
-// uma consulta por linha (a tela abre centenas de lancamentos de uma vez).
+// Listagem com conta, entidade, categoria e autor num JOIN so.
 function shapeJoinedTransaction(r: Row): Row {
   return {
     id: r.id,
     accountId: r.account_id,
     categoryId: r.category_id,
     description: r.description,
-    amount: r.amount,
+    amount: amountReaisSigned(r.type, r.amount_cents),
+    type: r.type,
     date: r.date,
     isManual: r.is_manual,
+    source: r.source,
     notes: r.notes,
     account: {
       id: r.account_id,
@@ -430,7 +444,7 @@ function shapeJoinedTransaction(r: Row): Row {
       name: r.a_name,
       type: r.a_type,
       institution: r.a_institution,
-      balance: r.a_balance,
+      balance: toReais(r.a_balance),
       currency: r.a_currency,
       pluggyItemId: r.a_pluggy_item_id,
       pluggyAccountId: r.a_pluggy_account_id,
@@ -453,8 +467,6 @@ export async function listTransactions(householdId: string, filters: {
   categoryId?: string | null;
   limit?: number;
 }): Promise<Row[]> {
-  // O limite entra como parametro (nunca concatenado) e com teto, para uma
-  // querystring maluca nao virar consulta gigante.
   const pedido = Number(filters.limit);
   const limit = Number.isFinite(pedido) ? Math.min(Math.max(Math.trunc(pedido), 1), 2000) : 300;
 
@@ -483,27 +495,25 @@ export async function listTransactions(householdId: string, filters: {
   return rows.map(shapeJoinedTransaction);
 }
 
-// Confere que a conta informada e' realmente do household.
 async function assertAccountInHousehold(householdId: string, accountId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM accounts WHERE id = ${accountId} AND household_id = ${householdId}`;
   if (!row) throw new ApiError("Conta nao encontrada", 404);
 }
 
-// Em conta manual (carteira, dinheiro em especie) o saldo so muda se a gente
-// mexer nele: entao cada lancamento manual soma/subtrai do saldo da conta.
-// Conta vinda da Pluggy nao entra aqui - o saldo dela vem do proprio banco.
-async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, delta: number) {
-  if (!delta) return;
+// Em conta manual o saldo muda a cada lancamento; delta em CENTAVOS (com sinal).
+// Conta da Pluggy nao entra aqui - o saldo dela vem do proprio banco.
+async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, deltaCents: number) {
+  if (!deltaCents) return;
   const [account] = await tx`SELECT is_manual FROM accounts WHERE id = ${accountId}`;
   if (!account) throw new ApiError("Conta nao encontrada", 404);
   if (!account.is_manual) return;
-  await tx`UPDATE accounts SET balance = balance + ${delta}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
+  await tx`UPDATE accounts SET balance = balance + ${deltaCents}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
 
 export async function createTransaction(householdId: string, t: {
   accountId: string;
   description: string;
-  amount: number;
+  amount: number; // reais, com sinal (negativo = despesa)
   date: string;
   categoryId?: string | null;
   notes?: string | null;
@@ -511,10 +521,12 @@ export async function createTransaction(householdId: string, t: {
 }): Promise<Row> {
   await assertAccountInHousehold(householdId, t.accountId);
   const id = newId();
+  const type = t.amount < 0 ? "expense" : "income";
+  const cents = toCents(Math.abs(t.amount));
   await inTransaction(async (tx) => {
-    await tx`INSERT INTO transactions (id, account_id, category_id, description, amount, date, is_manual, notes, created_by_id, created_at)
-      VALUES (${id}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${t.amount}, ${new Date(t.date).toISOString()}, true, ${t.notes ?? null}, ${t.createdById ?? null}, ${nowIso()})`;
-    await applyBalanceDelta(tx, t.accountId, t.amount);
+    await tx`INSERT INTO transactions (id, account_id, category_id, description, type, amount_cents, date, source, is_manual, notes, created_by_id, created_at)
+      VALUES (${id}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${type}, ${cents}, ${toDateOnly(t.date)}, 'manual', true, ${t.notes ?? null}, ${t.createdById ?? null}, ${nowIso()})`;
+    await applyBalanceDelta(tx, t.accountId, toCents(t.amount));
   });
   const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
   return shapeTransaction(row);
@@ -526,46 +538,167 @@ export async function updateTransaction(householdId: string, id: string, patch: 
     WHERE t.id = ${id} AND a.household_id = ${householdId}
   `;
   if (!cur) throw new ApiError("Transacao nao encontrada", 404);
+
+  const oldSignedCents = cur.type === "expense" ? -Number(cur.amount_cents) : Number(cur.amount_cents);
+  const newSignedCents = patch.amount === undefined ? oldSignedCents : toCents(patch.amount);
   const next = {
     description: patch.description ?? cur.description,
-    amount: patch.amount === undefined ? cur.amount : patch.amount,
-    date: patch.date ? new Date(patch.date).toISOString() : cur.date,
+    type: newSignedCents < 0 ? "expense" : "income",
+    amountCents: Math.abs(newSignedCents),
+    date: patch.date ? toDateOnly(patch.date) : cur.date,
     categoryId: patch.categoryId === undefined ? cur.category_id : patch.categoryId,
     notes: patch.notes === undefined ? cur.notes : patch.notes,
   };
   await inTransaction(async (tx) => {
-    await tx`UPDATE transactions SET description = ${next.description}, amount = ${next.amount}, date = ${next.date}, category_id = ${next.categoryId}, notes = ${next.notes} WHERE id = ${id}`;
-    // So a diferenca entra no saldo (editar 50 para 70 mexe 20, nao 70).
-    await applyBalanceDelta(tx, cur.account_id, next.amount - cur.amount);
+    await tx`UPDATE transactions SET description = ${next.description}, type = ${next.type}, amount_cents = ${next.amountCents}, date = ${next.date}, category_id = ${next.categoryId}, notes = ${next.notes} WHERE id = ${id}`;
+    await applyBalanceDelta(tx, cur.account_id, newSignedCents - oldSignedCents);
   });
   const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
   return shapeTransaction(row);
 }
 
-// Usado no sync: cria/atualiza transacao pela pluggyTransactionId. A conta
-// (accountId) ja vem de upsertPluggyAccount, que so opera dentro do household
-// de quem chamou o sync - nao precisa reconferir aqui.
+// Usado no sync (Pluggy): cria/atualiza pela pluggyTransactionId.
 export async function upsertPluggyTransaction(t: {
   accountId: string;
   description: string;
-  amount: number;
+  amount: number; // reais, com sinal
   date: string;
   categoryId?: string | null;
   pluggyTransactionId: string;
 }): Promise<void> {
+  const type = t.amount < 0 ? "expense" : "income";
+  const cents = toCents(Math.abs(t.amount));
   const [existing] = await sql`SELECT id FROM transactions WHERE pluggy_transaction_id = ${t.pluggyTransactionId}`;
   if (existing) {
-    await sql`UPDATE transactions SET description = ${t.description}, amount = ${t.amount}, date = ${new Date(t.date).toISOString()}, category_id = ${t.categoryId ?? null} WHERE id = ${existing.id}`;
+    await sql`UPDATE transactions SET description = ${t.description}, type = ${type}, amount_cents = ${cents}, date = ${toDateOnly(t.date)}, category_id = ${t.categoryId ?? null} WHERE id = ${existing.id}`;
     return;
   }
-  await sql`INSERT INTO transactions (id, account_id, category_id, description, amount, date, pluggy_transaction_id, is_manual, created_at)
-    VALUES (${newId()}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${t.amount}, ${new Date(t.date).toISOString()}, ${t.pluggyTransactionId}, false, ${nowIso()})`;
+  await sql`INSERT INTO transactions (id, account_id, category_id, description, type, amount_cents, date, pluggy_transaction_id, source, is_manual, created_at)
+    VALUES (${newId()}, ${t.accountId}, ${t.categoryId ?? null}, ${t.description}, ${type}, ${cents}, ${toDateOnly(t.date)}, ${t.pluggyTransactionId}, 'pluggy', false, ${nowIso()})`;
+}
+
+// ---------- Import (CSV) + regras de categorizacao ----------
+
+function shapeRule(row: Row): Row {
+  return {
+    id: row.id,
+    matchType: row.match_type,
+    pattern: row.pattern,
+    categoryId: row.category_id,
+    priority: row.priority,
+    active: row.active,
+  };
+}
+
+export async function listRules(householdId: string): Promise<Row[]> {
+  const rows = await sql`SELECT * FROM categorization_rules WHERE household_id = ${householdId} ORDER BY priority DESC, created_at ASC`;
+  return rows.map(shapeRule);
+}
+
+export async function createRule(householdId: string, r: {
+  matchType: "contains" | "starts_with" | "regex";
+  pattern: string;
+  categoryId: string;
+  priority?: number;
+}): Promise<Row> {
+  const [cat] = await sql`SELECT id FROM categories WHERE id = ${r.categoryId}`;
+  if (!cat) throw new ApiError("Categoria nao encontrada", 404);
+  const id = newId();
+  await sql`INSERT INTO categorization_rules (id, household_id, match_type, pattern, category_id, priority, active, created_at)
+    VALUES (${id}, ${householdId}, ${r.matchType}, ${r.pattern}, ${r.categoryId}, ${r.priority ?? 0}, true, ${nowIso()})`;
+  const [row] = await sql`SELECT * FROM categorization_rules WHERE id = ${id}`;
+  return shapeRule(row);
+}
+
+export async function deleteRule(householdId: string, id: string): Promise<void> {
+  await sql`DELETE FROM categorization_rules WHERE id = ${id} AND household_id = ${householdId}`;
+}
+
+// Primeira regra (maior prioridade) que casa com a descricao -> categoryId.
+function matchRule(rule: Row, descricao: string): boolean {
+  const d = descricao.toLowerCase();
+  const p = String(rule.pattern).toLowerCase();
+  if (rule.match_type === "contains") return d.includes(p);
+  if (rule.match_type === "starts_with") return d.startsWith(p);
+  if (rule.match_type === "regex") {
+    try {
+      return new RegExp(rule.pattern, "i").test(descricao);
+    } catch {
+      return false; // regex invalida do usuario nunca derruba o import
+    }
+  }
+  return false;
+}
+
+// Importa varias linhas numa conta. Historico NAO mexe no saldo atual (o saldo
+// ja reflete hoje). Dedup por fingerprint (indice unico parcial). Categoria
+// vem: (1) do nome mapeado na planilha, senao (2) de uma regra que case.
+export async function importTransactions(householdId: string, params: {
+  accountId: string;
+  filename?: string | null;
+  createdById?: string | null;
+  rows: { date: string; description: string; amount: number; categoryName?: string | null }[];
+}): Promise<{ batchId: string | null; created: number; skipped: number }> {
+  await assertAccountInHousehold(householdId, params.accountId);
+
+  // Pre-carrega categorias e regras uma vez (evita query por linha).
+  const cats = await sql`SELECT id, lower(name) AS lname FROM categories`;
+  const catByName = new Map<string, string>(cats.map((c) => [c.lname, c.id]));
+  const rules = await listRules(householdId);
+  const activeRules = rules.filter((r) => r.active);
+
+  function resolveCategory(description: string, categoryName?: string | null): string | null {
+    if (categoryName) {
+      const id = catByName.get(categoryName.trim().toLowerCase());
+      if (id) return id;
+    }
+    for (const rule of activeRules) {
+      const raw = { match_type: rule.matchType, pattern: rule.pattern };
+      if (matchRule(raw, description)) return rule.categoryId;
+    }
+    return null;
+  }
+
+  const batchId = newId();
+  let created = 0;
+  let skipped = 0;
+
+  await inTransaction(async (tx) => {
+    await tx`INSERT INTO import_batches (id, household_id, account_id, filename, format, row_count, created_by_id, imported_at)
+      VALUES (${batchId}, ${householdId}, ${params.accountId}, ${params.filename ?? null}, 'csv', ${params.rows.length}, ${params.createdById ?? null}, ${nowIso()})`;
+
+    for (const r of params.rows) {
+      const type = r.amount < 0 ? "expense" : "income";
+      const cents = toCents(Math.abs(r.amount));
+      const dateIso = toDateOnly(r.date);
+      const fingerprint = createHash("sha256")
+        .update(`${dateIso.slice(0, 10)}|${cents}|${type}|${normalizeDesc(r.description)}`)
+        .digest("hex");
+      const categoryId = resolveCategory(r.description, r.categoryName);
+
+      const inserted = await tx`
+        INSERT INTO transactions
+          (id, account_id, category_id, description, type, amount_cents, date, source, import_batch_id, fingerprint, is_manual, created_by_id, created_at)
+        VALUES
+          (${newId()}, ${params.accountId}, ${categoryId}, ${r.description}, ${type}, ${cents}, ${dateIso}, 'import', ${batchId}, ${fingerprint}, false, ${params.createdById ?? null}, ${nowIso()})
+        ON CONFLICT (account_id, fingerprint) WHERE source = 'import' DO NOTHING
+        RETURNING id`;
+      if (inserted.length > 0) created += 1;
+      else skipped += 1;
+    }
+
+    if (created === 0) {
+      await tx`DELETE FROM import_batches WHERE id = ${batchId}`;
+    } else {
+      await tx`UPDATE import_batches SET row_count = ${created} WHERE id = ${batchId}`;
+    }
+  });
+
+  return { batchId: created > 0 ? batchId : null, created, skipped };
 }
 
 // ---------- helpers compartilhados das fases 2-4 ----------
 
-// "YYYY-MM" a partir de mes (1-12) e ano; e o prefixo da data ISO guardada nas
-// transacoes, entao da para filtrar o mes com substr(date,1,7).
 function chaveMes(month: number, year: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
@@ -576,10 +709,10 @@ async function entidadeResumo(entityId: string | null): Promise<Row | null> {
   return row || null;
 }
 
-// Quanto ja foi gasto (despesas, valor negativo) numa entidade+categoria num mes.
-async function gastoDoMes(entityId: string, categoryId: string, chave: string): Promise<number> {
+// Quanto ja foi gasto (despesas) numa entidade+categoria num mes, em CENTAVOS.
+async function gastoCentsDoMes(entityId: string, categoryId: string, chave: string): Promise<number> {
   const [r] = await sql`
-    SELECT COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS gasto
+    SELECT COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents ELSE 0 END), 0) AS gasto
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
     WHERE a.entity_id = ${entityId} AND t.category_id = ${categoryId} AND substr(t.date, 1, 7) = ${chave}
@@ -601,17 +734,18 @@ export async function listBudgets(householdId: string, month: number, year: numb
 
   return Promise.all(
     rows.map(async (b) => {
-      const gasto = await gastoDoMes(b.entity_id, b.category_id, chave);
+      const amount = toReais(b.amount);
+      const gasto = toReais(await gastoCentsDoMes(b.entity_id, b.category_id, chave));
       return {
         id: b.id,
         entityId: b.entity_id,
         categoryId: b.category_id,
         month: b.month,
         year: b.year,
-        amount: b.amount,
+        amount,
         gasto,
-        restante: b.amount - gasto,
-        percentUsado: percentUsado(gasto, b.amount),
+        restante: amount - gasto,
+        percentUsado: percentUsado(gasto, amount),
         entity: await entidadeResumo(b.entity_id),
         category: { id: b.category_id, name: b.c_name, icon: b.c_icon },
       };
@@ -619,8 +753,6 @@ export async function listBudgets(householdId: string, month: number, year: numb
   );
 }
 
-// Cria ou atualiza o orcamento daquela entidade+categoria+mes (a tabela tem
-// UNIQUE nesses campos, entao mexer no mesmo mes so troca o valor).
 export async function upsertBudget(householdId: string, b: {
   entityId: string;
   categoryId: string;
@@ -629,20 +761,21 @@ export async function upsertBudget(householdId: string, b: {
   amount: number;
 }): Promise<Row> {
   await assertEntityInHousehold(householdId, b.entityId);
+  const cents = toCents(b.amount);
   const [existente] = await sql`
     SELECT id FROM budgets WHERE household_id = ${householdId} AND entity_id = ${b.entityId} AND category_id = ${b.categoryId} AND month = ${b.month} AND year = ${b.year}
   `;
 
   if (existente) {
-    await sql`UPDATE budgets SET amount = ${b.amount} WHERE id = ${existente.id}`;
+    await sql`UPDATE budgets SET amount = ${cents} WHERE id = ${existente.id}`;
     const [row] = await sql`SELECT * FROM budgets WHERE id = ${existente.id}`;
-    return row;
+    return { ...row, amount: toReais(row.amount) };
   }
   const id = newId();
   await sql`INSERT INTO budgets (id, household_id, entity_id, category_id, month, year, amount, created_at)
-    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.categoryId}, ${b.month}, ${b.year}, ${b.amount}, ${nowIso()})`;
+    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.categoryId}, ${b.month}, ${b.year}, ${cents}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM budgets WHERE id = ${id}`;
-  return row;
+  return { ...row, amount: toReais(row.amount) };
 }
 
 export async function deleteBudget(householdId: string, id: string): Promise<void> {
@@ -652,18 +785,18 @@ export async function deleteBudget(householdId: string, id: string): Promise<voi
 // ---------- Goals (metas de economia) ----------
 
 async function shapeGoal(row: Row): Promise<Row> {
-  const alvo = row.target_amount as number;
-  const atual = row.current_amount as number;
+  const alvoCents = Number(row.target_amount);
+  const atualCents = Number(row.current_amount);
   return {
     id: row.id,
     entityId: row.entity_id,
     name: row.name,
-    targetAmount: alvo,
-    currentAmount: atual,
+    targetAmount: toReais(alvoCents),
+    currentAmount: toReais(atualCents),
     targetDate: row.target_date,
-    percent: goalPercent(atual, alvo),
-    restante: Math.max(0, alvo - atual),
-    concluida: atual >= alvo,
+    percent: goalPercent(atualCents, alvoCents),
+    restante: toReais(Math.max(0, alvoCents - atualCents)),
+    concluida: atualCents >= alvoCents,
     entity: await entidadeResumo(row.entity_id),
   };
 }
@@ -683,7 +816,7 @@ export async function createGoal(householdId: string, g: {
   await assertEntityInHousehold(householdId, g.entityId);
   const id = newId();
   await sql`INSERT INTO goals (id, household_id, entity_id, name, target_amount, current_amount, target_date, created_at)
-    VALUES (${id}, ${householdId}, ${g.entityId}, ${g.name}, ${g.targetAmount}, ${g.currentAmount ?? 0}, ${g.targetDate ?? null}, ${nowIso()})`;
+    VALUES (${id}, ${householdId}, ${g.entityId}, ${g.name}, ${toCents(g.targetAmount)}, ${toCents(g.currentAmount ?? 0)}, ${g.targetDate ?? null}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
   return shapeGoal(row);
 }
@@ -691,10 +824,15 @@ export async function createGoal(householdId: string, g: {
 export async function updateGoal(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
   if (!cur) throw new ApiError("Meta nao encontrada", 404);
+  // deposito/currentAmount chegam em reais; tudo em centavos internamente.
+  const patchCents = {
+    deposito: patch.deposito === undefined ? undefined : toCents(patch.deposito),
+    currentAmount: patch.currentAmount === undefined ? undefined : toCents(patch.currentAmount),
+  };
   const next = {
     name: patch.name ?? cur.name,
-    targetAmount: patch.targetAmount === undefined ? cur.target_amount : patch.targetAmount,
-    currentAmount: nextGoalAmount(cur.current_amount, patch),
+    targetAmount: patch.targetAmount === undefined ? Number(cur.target_amount) : toCents(patch.targetAmount),
+    currentAmount: nextGoalAmount(Number(cur.current_amount), patchCents),
     targetDate: patch.targetDate === undefined ? cur.target_date : patch.targetDate,
   };
   await sql`UPDATE goals SET name = ${next.name}, target_amount = ${next.targetAmount}, current_amount = ${next.currentAmount}, target_date = ${next.targetDate} WHERE id = ${id}`;
@@ -713,7 +851,7 @@ async function shapeBill(row: Row, hoje = new Date()): Promise<Row> {
     id: row.id,
     entityId: row.entity_id,
     name: row.name,
-    amount: row.amount,
+    amount: toReais(row.amount),
     dueDay: row.due_day,
     recurring: row.recurring,
     lastPaidAt: row.last_paid_at,
@@ -737,7 +875,7 @@ export async function createBill(householdId: string, b: {
   await assertEntityInHousehold(householdId, b.entityId);
   const id = newId();
   await sql`INSERT INTO bills (id, household_id, entity_id, name, amount, due_day, recurring, created_at)
-    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.name}, ${b.amount}, ${b.dueDay}, ${b.recurring !== false}, ${nowIso()})`;
+    VALUES (${id}, ${householdId}, ${b.entityId}, ${b.name}, ${toCents(b.amount)}, ${b.dueDay}, ${b.recurring !== false}, ${nowIso()})`;
   const [row] = await sql`SELECT * FROM bills WHERE id = ${id}`;
   return shapeBill(row);
 }
@@ -747,10 +885,9 @@ export async function updateBill(householdId: string, id: string, patch: Row): P
   if (!cur) throw new ApiError("Conta a pagar nao encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
-    amount: patch.amount === undefined ? cur.amount : patch.amount,
+    amount: patch.amount === undefined ? Number(cur.amount) : toCents(patch.amount),
     dueDay: patch.dueDay === undefined ? cur.due_day : patch.dueDay,
     recurring: patch.recurring === undefined ? cur.recurring : !!patch.recurring,
-    // "pagar": marca como pago agora; "desmarcar": limpa o pagamento.
     lastPaidAt:
       patch.pagar === true
         ? nowIso()
@@ -769,16 +906,15 @@ export async function deleteBill(householdId: string, id: string): Promise<void>
   await sql`DELETE FROM bills WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
-// ---------- Relatorios (fase 4) ----------
+// ---------- Relatorios ----------
 
-// Receita x despesa dos ultimos N meses (para o grafico de barras). Opcionalmente
-// filtra por entidade.
+// Receita x despesa dos ultimos N meses (valores em reais).
 export async function monthlySummary(householdId: string, months = 6, entityId?: string | null): Promise<Row[]> {
   const limite = Math.min(Math.max(months, 1), 36);
   const rows = await sql`
     SELECT substr(t.date, 1, 7) AS mes,
-           COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS receita,
-           COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS despesa
+           COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_cents ELSE 0 END), 0) AS receita,
+           COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents ELSE 0 END), 0) AS despesa
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
     WHERE a.household_id = ${householdId} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
@@ -787,31 +923,29 @@ export async function monthlySummary(householdId: string, months = 6, entityId?:
     LIMIT ${limite}
   `;
 
-  // Vem do mais recente para o mais antigo; devolve em ordem cronologica.
   return rows
     .slice()
     .reverse()
-    .map((r) => ({
-      mes: r.mes,
-      receita: r.receita,
-      despesa: r.despesa,
-      saldo: r.receita - r.despesa,
-    }));
+    .map((r) => {
+      const receita = toReais(r.receita);
+      const despesa = toReais(r.despesa);
+      return { mes: r.mes, receita, despesa, saldo: receita - despesa };
+    });
 }
 
-// Gasto por categoria num mes (para o grafico de composicao das despesas).
+// Gasto por categoria num mes (valores em reais).
 export async function spendingByCategory(householdId: string, month: number, year: number, entityId?: string | null): Promise<Row[]> {
   const chave = chaveMes(month, year);
   const rows = await sql`
     SELECT c.id AS id, c.name AS name, c.icon AS icon,
-           COALESCE(SUM(-t.amount), 0) AS gasto
+           COALESCE(SUM(t.amount_cents), 0) AS gasto
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
     JOIN categories c ON c.id = t.category_id
-    WHERE t.amount < 0 AND a.household_id = ${householdId} AND substr(t.date, 1, 7) = ${chave} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
+    WHERE t.type = 'expense' AND a.household_id = ${householdId} AND substr(t.date, 1, 7) = ${chave} ${entityId ? sql`AND a.entity_id = ${entityId}` : sql``}
     GROUP BY c.id, c.name, c.icon
-    HAVING COALESCE(SUM(-t.amount), 0) > 0
+    HAVING COALESCE(SUM(t.amount_cents), 0) > 0
     ORDER BY gasto DESC
   `;
-  return rows;
+  return rows.map((r) => ({ id: r.id, name: r.name, icon: r.icon, gasto: toReais(r.gasto) }));
 }

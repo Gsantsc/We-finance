@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson } from "@/lib/http";
-import { currency } from "@/lib/formato";
+import { currency, formatDateBR } from "@/lib/formato";
 
 type Entity = { id: string; name: string };
 type Goal = {
@@ -197,7 +197,7 @@ export default function MetasPage() {
               </div>
               <div className="mt-1 flex items-center justify-between text-xs text-sage">
                 <span>{g.percent}%</span>
-                {g.targetDate && <span>ate {new Date(g.targetDate).toLocaleDateString("pt-BR")}</span>}
+                {g.targetDate && <span>ate {formatDateBR(g.targetDate)}</span>}
               </div>
 
               <div className="mt-4 flex items-center gap-3 text-sm">

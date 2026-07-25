@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson } from "@/lib/http";
+import { formatDateBR } from "@/lib/formato";
 
 type Category = { id: string; name: string; icon: string };
 type Account = { id: string; name: string; entity?: { id: string; name: string } | null };
@@ -80,14 +82,14 @@ export default function TransacoesPage() {
     <div>
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
-        <div className="flex items-center justify-between">
-          <h1 className="font-serif text-3xl text-ink">Transacoes</h1>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="btn-primary"
-          >
-            {showForm ? "Cancelar" : "Nova transacao"}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-serif text-3xl text-ink">Lancamentos</h1>
+          <div className="flex items-center gap-2">
+            <Link href="/importar" className="btn-ghost">Importar CSV</Link>
+            <button onClick={() => setShowForm((v) => !v)} className="btn-primary">
+              {showForm ? "Cancelar" : "Nova transacao"}
+            </button>
+          </div>
         </div>
 
         <ErroBanner mensagem={erro} />
@@ -170,7 +172,7 @@ export default function TransacoesPage() {
             <tbody>
               {transactions.map((t) => (
                 <tr key={t.id} className="border-t border-pine/8">
-                  <td className="px-4 py-2 text-sage">{new Date(t.date).toLocaleDateString("pt-BR")}</td>
+                  <td className="px-4 py-2 text-sage">{formatDateBR(t.date)}</td>
                   <td className="px-4 py-2">{t.description}</td>
                   <td className="px-4 py-2 text-sage">{t.account?.name}</td>
                   <td className="px-4 py-2 text-sage">{t.account?.entity?.name || "-"}</td>

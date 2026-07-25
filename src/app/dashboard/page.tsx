@@ -5,6 +5,7 @@ import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson } from "@/lib/http";
+import { formatDateBR } from "@/lib/formato";
 
 type Account = { id: string; name: string; balance: number; type: string };
 type Entity = {
@@ -148,7 +149,7 @@ export default function DashboardPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-ink">{t.description}</p>
                   <p className="truncate text-xs text-sage">
-                    {new Date(t.date).toLocaleDateString("pt-BR")}
+                    {formatDateBR(t.date)}
                     {t.account.entity?.name ? ` · ${t.account.entity.name}` : ""}
                   </p>
                 </div>

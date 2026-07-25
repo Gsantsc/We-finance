@@ -154,6 +154,21 @@ export const goalUpdateSchema = z.object({
   targetDate: data.nullish(),
 });
 
+// ---------- Import de planilha (CSV) ----------
+
+const importRowSchema = z.object({
+  date: data,
+  description: z.string().trim().min(1, "descricao vazia").max(300),
+  amount: valor.refine((v) => v !== 0, "valor zero"),
+  categoryName: z.string().trim().max(120).nullish(),
+});
+
+export const importSchema = z.object({
+  accountId: id,
+  filename: z.string().trim().max(200).nullish(),
+  rows: z.array(importRowSchema).min(1, "nenhuma linha para importar").max(5000, "no maximo 5000 linhas por vez"),
+});
+
 // ---------- Contas a pagar (bills) ----------
 
 const dia = z.number().int().min(1, "dia de 1 a 31").max(31, "dia de 1 a 31");
