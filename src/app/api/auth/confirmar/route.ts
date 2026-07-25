@@ -12,10 +12,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${base}/login?confirmacao=invalida`);
   }
 
-  const user = await consumeEmailVerificationToken(token);
-  if (!user) {
+  const verificados = await consumeEmailVerificationToken(token);
+  if (!verificados) {
     return NextResponse.redirect(`${base}/login?confirmacao=expirada`);
   }
 
-  return NextResponse.redirect(`${base}/login?confirmacao=ok`);
+  // Conta casal: um clique confirmou os dois - avisa na tela de login.
+  const resultado = verificados.length > 1 ? "ok-casal" : "ok";
+  return NextResponse.redirect(`${base}/login?confirmacao=${resultado}`);
 }

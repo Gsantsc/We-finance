@@ -113,9 +113,11 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
 }
 
 // Confere o token, marca o email como verificado e consome o token (uso
-// unico). Retorna o usuario se deu certo, ou null se o token nao existe,
-// expirou ou ja foi usado.
-export async function consumeEmailVerificationToken(rawToken: string): Promise<Row | null> {
+// unico). Numa conta casal, o clique de UM dos dois confirma a casa inteira
+// (o titular ja informou o email do conjuge no cadastro) - por isso retorna
+// a lista de usuarios verificados neste clique, ou null se o token nao
+// existe, expirou ou ja foi usado.
+export async function consumeEmailVerificationToken(rawToken: string): Promise<Row[] | null> {
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
   const [row] = await sql`SELECT * FROM email_verification_tokens WHERE token_hash = ${tokenHash}`;
   if (!row) return null;
@@ -123,8 +125,29 @@ export async function consumeEmailVerificationToken(rawToken: string): Promise<R
   await sql`DELETE FROM email_verification_tokens WHERE id = ${row.id}`;
   if (new Date(row.expires_at).getTime() < Date.now()) return null;
 
-  await sql`UPDATE users SET email_verified_at = ${nowIso()} WHERE id = ${row.user_id}`;
-  return (await getUserById(row.user_id)) ?? null;
+  const ts = nowIso();
+  const householdId = await getHouseholdIdForUser(row.user_id);
+  if (!householdId) {
+    await sql`UPDATE users SET email_verified_at = ${ts} WHERE id = ${row.user_id}`;
+    const user = await getUserById(row.user_id);
+    return user ? [user] : null;
+  }
+
+  const membros = await sql`
+    SELECT u.* FROM users u
+    JOIN household_members hm ON hm.user_id = u.id
+    WHERE hm.household_id = ${householdId}
+  `;
+  const pendentes = membros.filter((m) => !m.email_verified_at);
+  for (const m of pendentes) {
+    await sql`UPDATE users SET email_verified_at = ${ts} WHERE id = ${m.id}`;
+  }
+  if (pendentes.length > 0) return pendentes.map(shapeUser);
+
+  // Token do segundo clique de um casal ja confirmado: nada a fazer, mas o
+  // link continua valendo como "deu certo".
+  const user = await getUserById(row.user_id);
+  return user ? [user] : null;
 }
 
 // ---------- Households ----------

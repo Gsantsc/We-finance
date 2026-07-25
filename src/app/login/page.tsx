@@ -7,6 +7,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 const avisosConfirmacao: Record<string, { texto: string; ok: boolean }> = {
   ok: { texto: "Email confirmado! Entre com a senha temporaria Muda@123.", ok: true },
+  "ok-casal": {
+    texto: "Emails de voces dois confirmados! Cada um entra com a senha temporaria Muda@123 e cria a sua.",
+    ok: true,
+  },
   expirada: { texto: "Link de confirmacao invalido ou expirado. Faca o cadastro novamente.", ok: false },
   invalida: { texto: "Link de confirmacao invalido.", ok: false },
 };
