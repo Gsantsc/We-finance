@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson } from "@/lib/http";
 
 type Account = { id: string; name: string; balance: number; type: string };
 type Entity = {
@@ -31,8 +31,6 @@ export default function DashboardPage() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [semEntidade, setSemEntidade] = useState(0);
-  const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState("");
   const [erro, setErro] = useState("");
 
   async function load() {
@@ -54,20 +52,6 @@ export default function DashboardPage() {
   useEffect(() => {
     load();
   }, []);
-
-  async function handleSync() {
-    setSyncing(true);
-    setSyncMessage("");
-    try {
-      const data = await postJson<{ accountsSynced: number; transactionsSynced: number }>("/api/sync", {});
-      setSyncMessage(`Sincronizado: ${data.accountsSynced} contas, ${data.transactionsSynced} lancamentos.`);
-      await load();
-    } catch (e: any) {
-      setSyncMessage(`Erro: ${e.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  }
 
   const total = entities.reduce((sum, e) => sum + e.accounts.reduce((s, a) => s + a.balance, 0), 0);
   const totalContas = entities.reduce((n, e) => n + e.accounts.length, 0);
@@ -99,16 +83,12 @@ export default function DashboardPage() {
                 {totalContas === 1 ? "" : "s"}
               </p>
             </div>
-            <div className="text-right">
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="rounded-xl border border-cream/20 bg-cream/5 px-4 py-2.5 text-sm font-semibold text-cream transition-colors hover:bg-cream/10 disabled:opacity-50"
-              >
-                {syncing ? "Sincronizando..." : "Sincronizar bancos"}
-              </button>
-              {syncMessage && <p className="mt-2 max-w-[16rem] text-xs text-cream/50">{syncMessage}</p>}
-            </div>
+            <Link
+              href="/novo"
+              className="rounded-xl bg-honey px-4 py-2.5 text-sm font-semibold text-pine-deep transition-colors hover:bg-honey-soft"
+            >
+              + Lancar gasto
+            </Link>
           </div>
 
           {semEntidade > 0 && (
