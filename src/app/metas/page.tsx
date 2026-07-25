@@ -89,16 +89,16 @@ export default function MetasPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Metas de economia</h1>
+          <h1 className="font-serif text-3xl text-ink">Metas de economia</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova meta"}
           </button>
         </div>
 
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-sage">
           Junte dinheiro com um objetivo (viagem, reserva de emergencia, um bem). Use
           "Guardar" para registrar quanto ja separou.
         </p>
@@ -108,20 +108,20 @@ export default function MetasPage() {
         {showForm && (
           <form
             onSubmit={handleCreate}
-            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-5"
+            className="grid gap-3 card p-5 sm:grid-cols-5"
           >
             <input
               required
               placeholder="Nome (ex: Viagem)"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm sm:col-span-2"
+              className="input sm:col-span-2"
             />
             <select
               required
               value={form.entityId}
               onChange={(e) => setForm({ ...form, entityId: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             >
               <option value="" disabled>
                 Entidade
@@ -140,7 +140,7 @@ export default function MetasPage() {
               placeholder="Objetivo (R$)"
               value={form.targetAmount}
               onChange={(e) => setForm({ ...form, targetAmount: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
             <input
               type="number"
@@ -149,20 +149,20 @@ export default function MetasPage() {
               placeholder="Ja guardado"
               value={form.currentAmount}
               onChange={(e) => setForm({ ...form, currentAmount: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
-            <label className="flex items-center gap-2 text-sm text-slate-500 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm text-sage sm:col-span-2">
               Prazo (opcional)
               <input
                 type="date"
                 value={form.targetDate}
                 onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="input"
               />
             </label>
             <button
               type="submit"
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white sm:col-span-3"
+              className="btn-primary sm:col-span-3"
             >
               Salvar meta
             </button>
@@ -171,31 +171,31 @@ export default function MetasPage() {
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {goals.map((g) => (
-            <div key={g.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={g.id} className="card p-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-medium text-slate-900">{g.name}</h3>
-                  <p className="text-xs text-slate-500">{g.entity?.name}</p>
+                  <h3 className="font-medium text-ink">{g.name}</h3>
+                  <p className="text-xs text-sage">{g.entity?.name}</p>
                 </div>
                 {g.concluida && (
-                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  <span className="rounded-full bg-pine/10 px-2.5 py-0.5 text-xs font-semibold text-pine">
                     Concluida
                   </span>
                 )}
               </div>
 
-              <p className="mt-3 text-xl font-semibold text-slate-900">
+              <p className="mt-3 font-serif text-2xl text-ink tnum">
                 {currency.format(g.currentAmount)}
               </p>
-              <p className="text-xs text-slate-500">de {currency.format(g.targetAmount)}</p>
+              <p className="text-xs text-sage">de {currency.format(g.targetAmount)}</p>
 
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-pine/10">
                 <div
-                  className={`h-full ${g.concluida ? "bg-emerald-500" : "bg-indigo-500"}`}
+                  className={`h-full ${g.concluida ? "bg-pine-600" : "bg-honey"}`}
                   style={{ width: `${g.percent}%` }}
                 />
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+              <div className="mt-1 flex items-center justify-between text-xs text-sage">
                 <span>{g.percent}%</span>
                 {g.targetDate && <span>ate {new Date(g.targetDate).toLocaleDateString("pt-BR")}</span>}
               </div>
@@ -203,13 +203,13 @@ export default function MetasPage() {
               <div className="mt-4 flex items-center gap-3 text-sm">
                 <button
                   onClick={() => depositar(g.id)}
-                  className="rounded-lg bg-indigo-50 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-100"
+                  className="rounded-lg bg-honey/15 px-3 py-1.5 font-semibold text-honey-deep hover:bg-honey/25"
                 >
                   Guardar
                 </button>
                 <button
                   onClick={() => remover(g.id)}
-                  className="text-slate-400 hover:text-red-600"
+                  className="text-sage hover:text-clay"
                 >
                   remover
                 </button>
@@ -217,7 +217,7 @@ export default function MetasPage() {
             </div>
           ))}
           {goals.length === 0 && (
-            <p className="text-sm text-slate-400">Nenhuma meta ainda. Crie uma em "Nova meta".</p>
+            <p className="text-sm text-sage">Nenhuma meta ainda. Crie uma em "Nova meta".</p>
           )}
         </div>
       </main>

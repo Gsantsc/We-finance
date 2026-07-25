@@ -81,10 +81,10 @@ export default function TransacoesPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Transacoes</h1>
+          <h1 className="font-serif text-3xl text-ink">Transacoes</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova transacao"}
           </button>
@@ -95,13 +95,13 @@ export default function TransacoesPage() {
         {showForm && (
           <form
             onSubmit={handleCreate}
-            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3"
+            className="grid gap-3 card p-5 sm:grid-cols-3"
           >
             <select
               required
               value={form.accountId}
               onChange={(e) => setForm({ ...form, accountId: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             >
               <option value="" disabled>
                 Conta
@@ -116,7 +116,7 @@ export default function TransacoesPage() {
             <select
               value={form.categoryId}
               onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             >
               <option value="">Sem categoria</option>
               {categories.map((c) => (
@@ -130,14 +130,14 @@ export default function TransacoesPage() {
               required
               value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
             <input
               required
               placeholder="Descricao"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm sm:col-span-2"
+              className="input sm:col-span-2"
             />
             <input
               required
@@ -146,18 +146,18 @@ export default function TransacoesPage() {
               placeholder="Valor (negativo = gasto)"
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
-            <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white sm:col-span-3">
+            <button type="submit" className="btn-primary sm:col-span-3">
               Salvar transacao
             </button>
           </form>
         )}
 
         {/* No celular a tabela rola na horizontal em vez de espremer as colunas. */}
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <div className="card overflow-x-auto">
           <table className="w-full min-w-[680px] text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
+            <thead className="bg-pine/[0.04] text-left text-sage">
               <tr>
                 <th className="px-4 py-2">Data</th>
                 <th className="px-4 py-2">Descricao</th>
@@ -169,17 +169,17 @@ export default function TransacoesPage() {
             </thead>
             <tbody>
               {transactions.map((t) => (
-                <tr key={t.id} className="border-t border-slate-100">
-                  <td className="px-4 py-2 text-slate-500">{new Date(t.date).toLocaleDateString("pt-BR")}</td>
+                <tr key={t.id} className="border-t border-pine/8">
+                  <td className="px-4 py-2 text-sage">{new Date(t.date).toLocaleDateString("pt-BR")}</td>
                   <td className="px-4 py-2">{t.description}</td>
-                  <td className="px-4 py-2 text-slate-500">{t.account?.name}</td>
-                  <td className="px-4 py-2 text-slate-500">{t.account?.entity?.name || "-"}</td>
-                  <td className="px-4 py-2 text-slate-500">
+                  <td className="px-4 py-2 text-sage">{t.account?.name}</td>
+                  <td className="px-4 py-2 text-sage">{t.account?.entity?.name || "-"}</td>
+                  <td className="px-4 py-2 text-sage">
                     {t.category ? `${t.category.icon} ${t.category.name}` : "-"}
                   </td>
                   <td
                     className={`px-4 py-2 text-right font-medium ${
-                      t.amount < 0 ? "text-red-600" : "text-emerald-600"
+                      t.amount < 0 ? "text-clay" : "text-pine-600"
                     }`}
                   >
                     {currency.format(t.amount)}
@@ -188,7 +188,7 @@ export default function TransacoesPage() {
               ))}
               {transactions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sage">
                     Nenhuma transacao ainda.
                   </td>
                 </tr>

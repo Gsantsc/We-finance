@@ -40,79 +40,110 @@ function LoginForm() {
       );
       return;
     }
-    // Quem ainda esta na senha temporaria vai direto criar a definitiva.
     const session = await getSession();
     router.push(session?.user?.mustChangePassword ? "/trocar-senha" : "/dashboard");
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
-      >
-        <h1 className="text-xl font-semibold text-slate-900">We Finance</h1>
-        <p className="text-sm text-slate-500">Entre com sua conta para continuar.</p>
+    <div className="w-full max-w-sm animate-rise">
+      <h2 className="font-serif text-3xl text-ink">Bem-vindos de volta</h2>
+      <p className="mt-1 text-sm text-sage">Entre para ver as contas de voces.</p>
 
-        {aviso && (
-          <p
-            className={`rounded-lg px-3 py-2 text-sm font-medium ${
-              aviso.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-            }`}
-          >
-            {aviso.texto}
-          </p>
-        )}
+      {aviso && (
+        <p
+          className={`mt-5 rounded-xl px-4 py-3 text-sm font-medium ${
+            aviso.ok ? "bg-pine/8 text-pine" : "bg-clay/10 text-clay"
+          }`}
+        >
+          {aviso.texto}
+        </p>
+      )}
 
-        <div className="space-y-1">
-          <label htmlFor="email" className="text-sm font-medium text-slate-700">Email</label>
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <div className="space-y-1.5">
+          <label htmlFor="email" className="eyebrow">Email</label>
           <input
             id="email"
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            className="input"
           />
         </div>
 
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium text-slate-700">Senha</label>
+        <div className="space-y-1.5">
+          <label htmlFor="password" className="eyebrow">Senha</label>
           <input
             id="password"
             type="password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            className="input"
           />
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm font-medium text-clay">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className="btn-primary w-full">
           {loading ? "Entrando..." : "Entrar"}
         </button>
-
-        <p className="text-center text-sm text-slate-500">
-          Nao tem conta?{" "}
-          <Link href="/registrar" className="text-indigo-600 hover:underline">
-            Criar conta
-          </Link>
-        </p>
       </form>
+
+      <p className="mt-6 text-center text-sm text-sage">
+        Ainda nao tem conta?{" "}
+        <Link href="/registrar" className="link-honey">
+          Criar a de voces
+        </Link>
+      </p>
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense>
-      <LoginForm />
-    </Suspense>
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      <BrandPanel />
+      <div className="flex items-center justify-center px-6 py-14">
+        <Suspense>
+          <LoginForm />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+// Painel da marca: verde-pinho, wordmark e a proposta. So aparece inteiro no
+// desktop; no celular vira uma faixa curta no topo.
+function BrandPanel() {
+  return (
+    <div className="relative flex flex-col justify-between overflow-hidden bg-pine px-6 py-10 text-cream lg:px-12 lg:py-14">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full"
+        style={{ background: "radial-gradient(circle, rgba(231,183,90,0.16), transparent 70%)" }}
+      />
+      <Link href="/" className="flex items-baseline gap-1.5 leading-none">
+        <span className="font-serif text-3xl italic text-honey-soft">We</span>
+        <span className="font-serif text-3xl">Finance</span>
+      </Link>
+
+      <div className="relative hidden max-w-md lg:block">
+        <p className="eyebrow text-honey-soft/80">Financas a dois</p>
+        <p className="mt-4 font-serif text-4xl leading-tight">
+          As contas <span className="italic text-honey-soft">da casa</span>, as suas e as dele
+          &mdash; no mesmo lugar, em paz.
+        </p>
+        <p className="mt-5 text-sm leading-relaxed text-cream/70">
+          Casa, Pessoal e PJ separados com clareza. Cada um enxerga o conjunto,
+          sem planilha perdida no WhatsApp.
+        </p>
+      </div>
+
+      <p className="relative hidden text-xs text-cream/40 lg:block">
+        Seus dados sao privados da sua casa. So voces dois enxergam.
+      </p>
+    </div>
   );
 }

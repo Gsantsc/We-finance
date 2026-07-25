@@ -93,16 +93,16 @@ export default function ContasAPagarPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Contas a pagar</h1>
+          <h1 className="font-serif text-3xl text-ink">Contas a pagar</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova conta"}
           </button>
         </div>
 
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-sage">
           Cadastre contas fixas (aluguel, assinaturas, financiamentos) com o dia do
           mes em que vencem. Marque como "Paga" quando quitar; se for recorrente, o
           controle reinicia sozinho no mes seguinte.
@@ -111,9 +111,9 @@ export default function ContasAPagarPage() {
         <ErroBanner mensagem={erro} />
 
         {bills.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-5">
+          <div className="card p-5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Total do mes</span>
+              <span className="text-sage">Total do mes</span>
               <span className="font-medium">
                 {currency.format(totalPendente)} pendente de {currency.format(totalMes)}
               </span>
@@ -124,20 +124,20 @@ export default function ContasAPagarPage() {
         {showForm && (
           <form
             onSubmit={handleCreate}
-            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-5"
+            className="grid gap-3 card p-5 sm:grid-cols-5"
           >
             <input
               required
               placeholder="Nome (ex: Aluguel)"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm sm:col-span-2"
+              className="input sm:col-span-2"
             />
             <select
               required
               value={form.entityId}
               onChange={(e) => setForm({ ...form, entityId: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             >
               <option value="" disabled>
                 Entidade
@@ -156,7 +156,7 @@ export default function ContasAPagarPage() {
               placeholder="Valor (R$)"
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
             <input
               required
@@ -166,20 +166,20 @@ export default function ContasAPagarPage() {
               placeholder="Dia venc."
               value={form.dueDay}
               onChange={(e) => setForm({ ...form, dueDay: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
-            <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm text-ink/75 sm:col-span-2">
               <input
                 type="checkbox"
                 checked={form.recurring}
                 onChange={(e) => setForm({ ...form, recurring: e.target.checked })}
-                className="h-4 w-4 rounded border-slate-300"
+                className="h-4 w-4 rounded border-pine/15"
               />
               Recorrente (todo mes)
             </label>
             <button
               type="submit"
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white sm:col-span-3"
+              className="btn-primary sm:col-span-3"
             >
               Salvar conta
             </button>
@@ -190,31 +190,31 @@ export default function ContasAPagarPage() {
           {ordenadas.map((b) => (
             <div
               key={b.id}
-              className={`rounded-xl border bg-white p-5 shadow-sm ${
-                b.vencido ? "border-red-200" : "border-slate-200"
+              className={`rounded-2xl bg-cream p-5 shadow-card border ${
+                b.vencido ? "border-clay/30" : "border-pine/10"
               }`}
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-medium text-slate-900">{b.name}</h3>
-                  <p className="text-xs text-slate-500">{b.entity?.name}</p>
+                  <h3 className="font-medium text-ink">{b.name}</h3>
+                  <p className="text-xs text-sage">{b.entity?.name}</p>
                 </div>
                 {b.pagoEsteMes && (
-                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  <span className="rounded-full bg-pine/10 px-2.5 py-0.5 text-xs font-semibold text-pine">
                     Paga
                   </span>
                 )}
                 {!b.pagoEsteMes && b.vencido && (
-                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                  <span className="rounded-full bg-clay/12 px-2.5 py-0.5 text-xs font-semibold text-clay">
                     Vencida
                   </span>
                 )}
               </div>
 
-              <p className="mt-3 text-xl font-semibold text-slate-900">
+              <p className="mt-3 font-serif text-2xl text-ink tnum">
                 {currency.format(b.amount)}
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-sage">
                 Vence dia {b.dueDay}
                 {b.recurring ? " (todo mes)" : ""}
                 {!b.pagoEsteMes && b.diasAteVencer !== null && (
@@ -234,21 +234,21 @@ export default function ContasAPagarPage() {
                 {b.pagoEsteMes ? (
                   <button
                     onClick={() => marcarPaga(b.id, false)}
-                    className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-200"
+                    className="rounded-lg bg-pine/8 px-3 py-1.5 font-semibold text-pine hover:bg-pine/15"
                   >
                     Desmarcar
                   </button>
                 ) : (
                   <button
                     onClick={() => marcarPaga(b.id, true)}
-                    className="rounded-lg bg-indigo-50 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-100"
+                    className="rounded-lg bg-honey/15 px-3 py-1.5 font-semibold text-honey-deep hover:bg-honey/25"
                   >
                     Marcar como paga
                   </button>
                 )}
                 <button
                   onClick={() => remover(b.id)}
-                  className="text-slate-400 hover:text-red-600"
+                  className="text-sage hover:text-clay"
                 >
                   remover
                 </button>
@@ -256,7 +256,7 @@ export default function ContasAPagarPage() {
             </div>
           ))}
           {bills.length === 0 && (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-sage">
               Nenhuma conta cadastrada. Crie uma em "Nova conta".
             </p>
           )}

@@ -17,3 +17,4 @@ certs/
 *.key
 *.crt
 *.p12
+.playwright-mcp/

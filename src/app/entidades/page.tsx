@@ -20,7 +20,7 @@ export default function EntidadesPage() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [erro, setErro] = useState("");
-  const [form, setForm] = useState({ name: "", type: "PESSOAL", color: "#6366f1" });
+  const [form, setForm] = useState({ name: "", type: "PESSOAL", color: "#356154" });
 
   async function load() {
     try {
@@ -39,7 +39,7 @@ export default function EntidadesPage() {
     e.preventDefault();
     try {
       await postJson("/api/entidades", form);
-      setForm({ name: "", type: "PESSOAL", color: "#6366f1" });
+      setForm({ name: "", type: "PESSOAL", color: "#356154" });
       setShowForm(false);
       await load();
     } catch (err: any) {
@@ -52,15 +52,15 @@ export default function EntidadesPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Entidades</h1>
+          <h1 className="font-serif text-3xl text-ink">Entidades</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova entidade"}
           </button>
         </div>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-sage">
           Entidades organizam suas contas em Casa (compartilhado), Pessoal (individual) ou PJ (empresa).
           Crie quantas precisar - por exemplo, um PJ para cada um de voces.
         </p>
@@ -70,19 +70,19 @@ export default function EntidadesPage() {
         {showForm && (
           <form
             onSubmit={handleCreate}
-            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3"
+            className="grid gap-3 card p-5 sm:grid-cols-3"
           >
             <input
               required
               placeholder="Nome (ex: PJ - Esposa)"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             />
             <select
               value={form.type}
               onChange={(e) => setForm({ ...form, type: e.target.value })}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="input"
             >
               <option value="CASA">Casa</option>
               <option value="PESSOAL">Pessoal</option>
@@ -92,9 +92,9 @@ export default function EntidadesPage() {
               type="color"
               value={form.color}
               onChange={(e) => setForm({ ...form, color: e.target.value })}
-              className="h-10 w-full rounded-lg border border-slate-300"
+              className="h-10 w-full rounded-xl border border-pine/15"
             />
-            <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white sm:col-span-3">
+            <button type="submit" className="btn-primary sm:col-span-3">
               Salvar entidade
             </button>
           </form>
@@ -102,16 +102,16 @@ export default function EntidadesPage() {
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {entities.map((e) => (
-            <div key={e.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={e.id} className="card p-5">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: e.color }} />
                 <h3 className="font-medium">{e.name}</h3>
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-sage">
                 {typeLabel[e.type]}
                 {e.owner ? ` - ${e.owner.name}` : ""}
               </p>
-              <p className="mt-2 text-sm text-slate-600">{e.accounts.length} conta(s)</p>
+              <p className="mt-2 text-sm text-ink/75">{e.accounts.length} conta(s)</p>
             </div>
           ))}
         </div>
