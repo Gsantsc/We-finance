@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { postJson } from "@/lib/http";
+import { postJson, mensagemDeErro } from "@/lib/http";
 
 export default function TrocarSenhaPage() {
   const router = useRouter();
@@ -24,8 +24,8 @@ export default function TrocarSenhaPage() {
       await postJson("/api/auth/trocar-senha", { newPassword: form.newPassword });
       await update(); // limpa o mustChangePassword do JWT antes de seguir
       router.push("/dashboard");
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     } finally {
       setSalvando(false);
     }

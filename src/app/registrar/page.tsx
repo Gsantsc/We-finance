@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { postJson } from "@/lib/http";
+import { postJson, mensagemDeErro } from "@/lib/http";
 
 function Wordmark() {
   return (
@@ -34,8 +34,8 @@ export default function RegistrarPage() {
           : {}),
       });
       setEnviado(res.message);
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     } finally {
       setEnviando(false);
     }

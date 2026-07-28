@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { currency, nomesMeses } from "@/lib/formato";
 import { budgetBarColor } from "@/lib/rules";
 
@@ -44,8 +44,8 @@ export default function OrcamentosPage() {
       setEntities(entRes);
       setCategories(catRes);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -67,8 +67,8 @@ export default function OrcamentosPage() {
       setForm({ entityId: "", categoryId: "", amount: "" });
       setShowForm(false);
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -76,8 +76,8 @@ export default function OrcamentosPage() {
     try {
       await fetch(`/api/orcamentos?id=${id}`, { method: "DELETE" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 

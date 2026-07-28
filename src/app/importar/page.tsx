@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { parseCSV, parseAmount, parseDateBR } from "@/lib/csv";
 
 type Account = { id: string; name: string; entity?: { name: string } | null };
@@ -29,7 +29,7 @@ export default function ImportarPage() {
   const [resultado, setResultado] = useState<{ created: number; skipped: number } | null>(null);
 
   useEffect(() => {
-    getJson<Account[]>("/api/contas").then(setAccounts).catch((e) => setErro(e.message));
+    getJson<Account[]>("/api/contas").then(setAccounts).catch((e) => setErro(mensagemDeErro(e)));
   }, []);
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -100,8 +100,8 @@ export default function ImportarPage() {
         })),
       });
       setResultado(res);
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     } finally {
       setEnviando(false);
     }

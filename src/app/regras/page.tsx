@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 
 type Category = { id: string; name: string; icon: string };
 type Rule = {
@@ -39,8 +39,8 @@ export default function RegrasPage() {
       setRules(r);
       setCategories(c);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -59,8 +59,8 @@ export default function RegrasPage() {
       });
       setForm({ matchType: "contains", pattern: "", categoryId: "", priority: "0" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -72,8 +72,8 @@ export default function RegrasPage() {
         body: JSON.stringify({ id: rule.id, active: !rule.active }),
       });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -81,8 +81,8 @@ export default function RegrasPage() {
     try {
       await fetch(`/api/regras?id=${id}`, { method: "DELETE" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { currency } from "@/lib/formato";
 import { sortBills } from "@/lib/rules";
 
@@ -39,8 +39,8 @@ export default function ContasAPagarPage() {
       setBills(billRes);
       setEntities(entRes);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -61,8 +61,8 @@ export default function ContasAPagarPage() {
       setForm({ entityId: "", name: "", amount: "", dueDay: "", recurring: true });
       setShowForm(false);
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -70,8 +70,8 @@ export default function ContasAPagarPage() {
     try {
       await postJson("/api/contas-a-pagar", { id, pagar });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -79,8 +79,8 @@ export default function ContasAPagarPage() {
     try {
       await fetch(`/api/contas-a-pagar?id=${id}`, { method: "DELETE" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
