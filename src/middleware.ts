@@ -13,6 +13,12 @@ export const config = {
     "/importar/:path*",
     "/regras/:path*",
     "/trocar-senha/:path*",
+    // Toda rota /api que le dado da casa entra aqui. O requireHousehold() do
+    // handler ja barra sozinho, mas deixar a rota fora do matcher tira a camada
+    // de fora e faz uma rota nova nascer desprotegida se alguem esquecer a
+    // checagem interna.
+    "/api/dashboard/:path*",
+    "/api/membros/:path*",
     "/api/entidades/:path*",
     "/api/contas/:path*",
     "/api/transacoes/:path*",

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { formatDateBR } from "@/lib/formato";
+import { dataDeHojeSP, installmentPlanCents, type InstallmentMode } from "@/lib/rules";
+import { SkeletonLinha } from "@/components/Skeleton";
 
 type Category = { id: string; name: string; icon: string };
 type Account = { id: string; name: string; entity?: { id: string; name: string } | null };
@@ -21,35 +23,66 @@ type Transaction = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const formInicial = () => ({
+  accountId: "",
+  categoryId: "",
+  description: "",
+  amount: "",
+  date: dataDeHojeSP(),
+  installments: "1",
+  // "fixed" = o valor digitado e' o de cada parcela (emprestimo). Default por
+  // ser o caso em que dividir daria errado sem o usuario perceber.
+  installmentMode: "fixed" as InstallmentMode,
+});
+
+const PAGINA = 50;
 
 export default function TransacoesPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [erro, setErro] = useState("");
-  const [form, setForm] = useState({
-    accountId: "",
-    categoryId: "",
-    description: "",
-    amount: "",
-    date: new Date().toISOString().slice(0, 10),
-    installments: "1",
-  });
+  const [carregando, setCarregando] = useState(true);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [fim, setFim] = useState(false);
+  const [form, setForm] = useState(formInicial);
 
+  // Pagina o historico: carrega uma janela e vai buscando o resto sob demanda,
+  // em vez de trazer tudo de uma vez.
   async function load() {
     try {
       const [txRes, accRes, catRes] = await Promise.all([
-        getJson<Transaction[]>("/api/transacoes"),
+        getJson<Transaction[]>(`/api/transacoes?limit=${PAGINA}`),
         getJson<Account[]>("/api/contas"),
         getJson<Category[]>("/api/categorias"),
       ]);
       setTransactions(txRes);
       setAccounts(accRes);
       setCategories(catRes);
+      setFim(txRes.length < PAGINA);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function carregarMais() {
+    setCarregandoMais(true);
+    try {
+      const mais = await getJson<Transaction[]>(
+        `/api/transacoes?limit=${PAGINA}&offset=${transactions.length}`
+      );
+      setTransactions((atual) => [...atual, ...mais]);
+      if (mais.length < PAGINA) setFim(true);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
+    } finally {
+      setCarregandoMais(false);
     }
   }
 
@@ -57,34 +90,72 @@ export default function TransacoesPage() {
     load();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
+  function resetForm() {
+    setForm(formInicial());
+    setEditingId(null);
+    setShowForm(false);
+  }
+
+  function startEdit(t: Transaction) {
+    setEditingId(t.id);
+    setForm({
+      accountId: t.account?.id || "",
+      categoryId: t.category?.id || "",
+      description: t.description,
+      amount: String(t.amount),
+      date: t.date.slice(0, 10),
+      installments: "1",
+      installmentMode: "fixed",
+    });
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Sem trava, dois cliques (ou Enter duas vezes) gravavam DUAS transacoes e
+    // aplicavam o delta no saldo da conta duas vezes.
+    if (enviando) return;
+    setEnviando(true);
     const parcelas = Math.max(1, parseInt(form.installments || "1", 10));
+    const payload = {
+      accountId: form.accountId,
+      categoryId: form.categoryId || null,
+      description: form.description,
+      amount: parseFloat(form.amount.replace(",", ".")),
+      date: form.date,
+    };
+
     try {
-      await postJson("/api/transacoes", {
-        accountId: form.accountId,
-        categoryId: form.categoryId || null,
-        description: form.description,
-        amount: parseFloat(form.amount),
-        date: form.date,
-        ...(parcelas > 1 ? { installments: parcelas } : {}),
-      });
-      setForm({
-        accountId: "",
-        categoryId: "",
-        description: "",
-        amount: "",
-        date: new Date().toISOString().slice(0, 10),
-        installments: "1",
-      });
-      setShowForm(false);
+      await postJson(
+        "/api/transacoes",
+        editingId
+          ? { id: editingId, ...payload }
+          : {
+              ...payload,
+              ...(parcelas > 1
+                ? { installments: parcelas, installmentMode: form.installmentMode }
+                : {}),
+            }
+      );
+      resetForm();
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
+    } finally {
+      setEnviando(false);
     }
   }
 
   const parcelas = Math.max(1, parseInt(form.installments || "1", 10));
+  // Previa do que sera gravado - a mesma funcao que o servidor usa, para o
+  // usuario ver a diferenca entre dividir o total e repetir a parcela.
+  const centavosDigitados = Math.round(
+    Math.abs(parseFloat(form.amount.replace(",", ".")) || 0) * 100
+  );
+  const previa =
+    !editingId && parcelas > 1 && centavosDigitados > 0
+      ? installmentPlanCents(centavosDigitados, parcelas, form.installmentMode)
+      : null;
 
   return (
     <div>
@@ -95,7 +166,7 @@ export default function TransacoesPage() {
           <div className="flex items-center gap-2">
             <Link href="/regras" className="btn-ghost">Regras</Link>
             <Link href="/importar" className="btn-ghost">Importar CSV</Link>
-            <button onClick={() => setShowForm((v) => !v)} className="btn-primary">
+            <button onClick={() => (showForm ? resetForm() : setShowForm(true))} className="btn-primary">
               {showForm ? "Cancelar" : "Nova transacao"}
             </button>
           </div>
@@ -104,10 +175,7 @@ export default function TransacoesPage() {
         <ErroBanner mensagem={erro} />
 
         {showForm && (
-          <form
-            onSubmit={handleCreate}
-            className="grid gap-3 card p-5 sm:grid-cols-3"
-          >
+          <form onSubmit={handleSubmit} className="grid gap-3 card p-5 sm:grid-cols-3">
             <select
               required
               value={form.accountId}
@@ -154,37 +222,84 @@ export default function TransacoesPage() {
               required
               type="number"
               step="0.01"
-              placeholder={parcelas > 1 ? "Valor total da compra" : "Valor (negativo = gasto)"}
+              placeholder={
+                editingId || parcelas <= 1
+                  ? "Valor (negativo = gasto)"
+                  : form.installmentMode === "split"
+                  ? "Valor total da compra"
+                  : "Valor de cada parcela"
+              }
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
               className="input"
             />
-            <label className="flex items-center gap-2 text-sm text-ink/75">
-              <span className="whitespace-nowrap">Parcelas</span>
-              <input
-                type="number"
-                min="1"
-                max="360"
-                value={form.installments}
-                onChange={(e) => setForm({ ...form, installments: e.target.value })}
-                className="input"
-              />
-            </label>
-            {parcelas > 1 && (
+            {!editingId && (
+              <label className="flex items-center gap-2 text-sm text-ink/75">
+                <span className="whitespace-nowrap">Parcelas</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="360"
+                  value={form.installments}
+                  onChange={(e) => setForm({ ...form, installments: e.target.value })}
+                  className="input"
+                />
+              </label>
+            )}
+            {!editingId && parcelas > 1 && (
+              <fieldset className="sm:col-span-3">
+                <legend className="mb-1 text-sm text-ink/75">Como ler o valor</legend>
+                <div className="flex flex-wrap gap-4 text-sm text-ink/75">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="installmentMode"
+                      value="fixed"
+                      checked={form.installmentMode === "fixed"}
+                      onChange={() => setForm({ ...form, installmentMode: "fixed" })}
+                    />
+                    Parcela fixa / emprestimo (valor x {parcelas})
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="installmentMode"
+                      value="split"
+                      checked={form.installmentMode === "split"}
+                      onChange={() => setForm({ ...form, installmentMode: "split" })}
+                    />
+                    Compra em {parcelas}x (dividir o total)
+                  </label>
+                </div>
+              </fieldset>
+            )}
+            {previa && (
               <p className="text-xs text-sage sm:col-span-3">
-                Vira {parcelas} lancamentos mensais a partir da data — o valor acima e' o
-                <strong> total</strong> da compra, dividido nas parcelas.
+                Vira {parcelas} lancamentos mensais a partir da data:{" "}
+                <strong>
+                  {parcelas}x de {currency.format(previa[0] / 100)}
+                </strong>
+                {previa[parcelas - 1] !== previa[0] && (
+                  <> (a ultima de {currency.format(previa[parcelas - 1] / 100)})</>
+                )}
+                {" — total "}
+                {currency.format(previa.reduce((s, x) => s + x, 0) / 100)}.
               </p>
             )}
-            <button type="submit" className="btn-primary sm:col-span-3">
-              {parcelas > 1 ? `Salvar em ${parcelas}x` : "Salvar transacao"}
+            <button type="submit" disabled={enviando} className="btn-primary sm:col-span-3 disabled:opacity-60">
+              {enviando
+                ? "Salvando..."
+                : editingId
+                ? "Salvar alteracao"
+                : parcelas > 1
+                ? `Salvar em ${parcelas}x`
+                : "Salvar transacao"}
             </button>
           </form>
         )}
 
-        {/* No celular a tabela rola na horizontal em vez de espremer as colunas. */}
         <div className="card overflow-x-auto">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-pine/[0.04] text-left text-sage">
               <tr>
                 <th className="px-4 py-2">Data</th>
@@ -193,6 +308,7 @@ export default function TransacoesPage() {
                 <th className="px-4 py-2">Entidade</th>
                 <th className="px-4 py-2">Categoria</th>
                 <th className="px-4 py-2 text-right">Valor</th>
+                <th className="px-4 py-2 text-right">Acoes</th>
               </tr>
             </thead>
             <tbody>
@@ -219,11 +335,24 @@ export default function TransacoesPage() {
                   >
                     {currency.format(t.amount)}
                   </td>
+                  <td className="px-4 py-2 text-right">
+                    <button onClick={() => startEdit(t)} className="link-honey">
+                      Editar
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {transactions.length === 0 && (
+              {carregando &&
+                Array.from({ length: 6 }, (_, i) => (
+                  <tr key={i} className="border-t border-pine/8">
+                    <td colSpan={7} className="px-4 py-2">
+                      <SkeletonLinha className="h-6 w-full" />
+                    </td>
+                  </tr>
+                ))}
+              {!carregando && transactions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-sage">
+                  <td colSpan={7} className="px-4 py-6 text-center text-sage">
                     Nenhuma transacao ainda.
                   </td>
                 </tr>
@@ -231,6 +360,17 @@ export default function TransacoesPage() {
             </tbody>
           </table>
         </div>
+
+        {!carregando && transactions.length > 0 && (
+          <div className="flex items-center justify-center gap-3 text-sm text-sage">
+            <span>{transactions.length} lancamento(s) carregado(s)</span>
+            {!fim && (
+              <button onClick={carregarMais} disabled={carregandoMais} className="btn-ghost">
+                {carregandoMais ? "Carregando..." : "Carregar mais"}
+              </button>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

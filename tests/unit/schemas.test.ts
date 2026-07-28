@@ -4,6 +4,7 @@ import {
   budgetUpsertSchema,
   goalCreateSchema,
   goalUpdateSchema,
+  transactionUpdateSchema,
 } from "@/lib/schemas";
 
 const entityId = "entity-1";
@@ -74,6 +75,16 @@ describe("@regression goalCreateSchema", () => {
     const r = goalCreateSchema.safeParse({ entityId, name: "Viagem", targetAmount: 1000 });
     expect(r.success).toBe(true);
   });
+
+  it("aceita monthlyAmount positivo opcional", () => {
+    const r = goalCreateSchema.safeParse({
+      entityId,
+      name: "Reserva",
+      targetAmount: 5000,
+      monthlyAmount: 300,
+    });
+    expect(r.success).toBe(true);
+  });
 });
 
 describe("@regression goalUpdateSchema", () => {
@@ -90,5 +101,12 @@ describe("@regression goalUpdateSchema", () => {
   it("exige id", () => {
     const r = goalUpdateSchema.safeParse({ deposito: 10 });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("@regression transactionUpdateSchema", () => {
+  it("aceita troca de conta no lancamento", () => {
+    const r = transactionUpdateSchema.safeParse({ id: "tx-1", accountId: "acc-2" });
+    expect(r.success).toBe(true);
   });
 });

@@ -5,12 +5,16 @@
 import { z } from "zod";
 
 export const entityTypeSchema = z.enum(["CASA", "PESSOAL", "PJ"]);
+// Espelha o CHECK accounts_type_check (migracao 0003). Mexer aqui sem mexer la
+// (ou o contrario) da erro so na hora do INSERT.
 export const accountTypeSchema = z.enum([
   "CORRENTE",
   "POUPANCA",
   "CARTAO",
   "INVESTIMENTO",
   "DINHEIRO",
+  "VALE_ALIMENTACAO", // VA
+  "VALE_REFEICAO", // VR
   "OUTRO",
 ]);
 
@@ -102,6 +106,8 @@ export const accountUpdateSchema = z.object({
 
 // ---------- Transacoes ----------
 
+export const installmentModeSchema = z.enum(["split", "fixed"]);
+
 export const transactionCreateSchema = z.object({
   accountId: id,
   description: nome,
@@ -109,8 +115,12 @@ export const transactionCreateSchema = z.object({
   date: data,
   categoryId: id.nullish(),
   notes: z.string().trim().max(500).nullish(),
-  // >1 cria uma compra parcelada (o "amount" e' o total); ausente/1 = a vista.
+  // >1 cria um parcelamento; ausente/1 = a vista. O "installmentMode" diz como
+  // ler o "amount": "split" (compra em Nx) = amount e' o TOTAL, dividido nas n
+  // parcelas; "fixed" (parcela fixa / emprestimo) = amount e' o valor de CADA
+  // parcela e o total e' amount x n. Ausente = "fixed".
   installments: z.number().int().min(1).max(360).optional(),
+  installmentMode: installmentModeSchema.optional(),
 });
 
 // ---------- Regras de categorizacao ----------
@@ -124,6 +134,7 @@ export const ruleCreateSchema = z.object({
 
 export const transactionUpdateSchema = z.object({
   id,
+  accountId: id.optional(),
   description: nome.optional(),
   amount: valor.optional(),
   date: data.optional(),
@@ -152,6 +163,7 @@ export const goalCreateSchema = z.object({
   name: nome,
   targetAmount: valorPositivo,
   currentAmount: valorPositivo.optional(),
+  monthlyAmount: valorPositivo.optional(),
   targetDate: data.nullish(),
 });
 
@@ -160,9 +172,18 @@ export const goalUpdateSchema = z.object({
   name: nome.optional(),
   targetAmount: valorPositivo.optional(),
   currentAmount: valorPositivo.optional(),
+  monthlyAmount: valorPositivo.optional(),
   // deposito soma ao valor atual (pode ser negativo para corrigir).
   deposito: valor.optional(),
   targetDate: data.nullish(),
+});
+
+// Aporte de meta: valor pode ser negativo (retirada/correcao), mas nunca zero.
+export const goalContributionCreateSchema = z.object({
+  goalId: id,
+  amount: valor.refine((v) => v !== 0, "informe um valor diferente de zero"),
+  date: data,
+  note: z.string().trim().max(200).nullish(),
 });
 
 // ---------- Import de planilha (CSV) ----------

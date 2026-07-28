@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  addMonthKey,
   addMonths,
   billStatus,
+  dataDeHojeSP,
+  lerValorBR,
+  mesDeHojeSP,
   budgetBarColor,
   goalPercent,
+  installmentPlanCents,
   nextGoalAmount,
   percentUsado,
+  repeatInstallmentCents,
   sortBills,
   splitInstallmentCents,
 } from "@/lib/rules";
@@ -24,6 +30,41 @@ describe("@regression splitInstallmentCents", () => {
   });
 });
 
+describe("@regression repeatInstallmentCents", () => {
+  it("repete o valor mensal informado em todas as parcelas", () => {
+    const p = repeatInstallmentCents(71500, 48);
+    expect(p).toHaveLength(48);
+    expect(p.every((x) => x === 71500)).toBe(true);
+  });
+});
+
+describe("@regression installmentPlanCents", () => {
+  it("modo fixed nao divide: emprestimo de 715 em 48x = 48 parcelas de 715", () => {
+    const p = installmentPlanCents(71500, 48, "fixed");
+    expect(p).toHaveLength(48);
+    expect(p.every((x) => x === 71500)).toBe(true);
+    expect(p.reduce((s, x) => s + x, 0)).toBe(71500 * 48);
+  });
+
+  it("modo split divide o total: compra de 1200 em 12x = 12 parcelas de 100", () => {
+    const p = installmentPlanCents(120000, 12, "split");
+    expect(p).toHaveLength(12);
+    expect(p.every((x) => x === 10000)).toBe(true);
+    expect(p.reduce((s, x) => s + x, 0)).toBe(120000);
+  });
+
+  it("modo split joga o resto na ultima parcela", () => {
+    expect(installmentPlanCents(100000, 3, "split")).toEqual([33333, 33333, 33334]);
+  });
+
+  it("os dois modos divergem para o mesmo valor (e' esse o bug que separa)", () => {
+    const fixo = installmentPlanCents(71500, 48, "fixed");
+    const dividido = installmentPlanCents(71500, 48, "split");
+    expect(fixo[0]).toBe(71500);
+    expect(dividido[0]).toBe(1489);
+  });
+});
+
 describe("@regression addMonths", () => {
   it("soma meses mantendo o dia", () => {
     expect(addMonths("2026-01-10", 1)).toBe("2026-02-10");
@@ -34,6 +75,89 @@ describe("@regression addMonths", () => {
   });
   it("clampa o dia para o fim do mes mais curto", () => {
     expect(addMonths("2026-01-31", 1)).toBe("2026-02-28");
+  });
+});
+
+describe("@regression lerValorBR", () => {
+  it("le a grafia brasileira com milhar e decimal", () => {
+    expect(lerValorBR("1.500,50")).toBe(1500.5);
+    expect(lerValorBR("10.000")).toBe(10000);
+    expect(lerValorBR("1500,50")).toBe(1500.5);
+  });
+
+  it("parseFloat sozinho erraria esse caso - e' o bug que motivou a funcao", () => {
+    expect(parseFloat("1.500,50".replace(",", "."))).toBe(1.5);
+    expect(lerValorBR("1.500,50")).toBe(1500.5);
+  });
+
+  it("aceita negativo, R$ e espacos", () => {
+    expect(lerValorBR("-20")).toBe(-20);
+    expect(lerValorBR(" R$ 2.000,00 ")).toBe(2000);
+    expect(lerValorBR("-1.234,56")).toBe(-1234.56);
+  });
+
+  it("ponto em grupos de 3 e' milhar; fora disso e' decimal", () => {
+    expect(lerValorBR("10.000")).toBe(10000);
+    expect(lerValorBR("1.234.567")).toBe(1234567);
+    expect(lerValorBR("1500.50")).toBe(1500.5);
+    expect(lerValorBR("0.75")).toBe(0.75);
+  });
+
+  it("devolve null no que nao e' numero, em vez de NaN silencioso", () => {
+    expect(lerValorBR("abc")).toBeNull();
+    expect(lerValorBR("")).toBeNull();
+    expect(lerValorBR("1,2,3")).toBeNull();
+  });
+});
+
+describe("@regression fuso de competencia (America/Sao_Paulo)", () => {
+  it("22h de 31/07 em BRT ainda e' 31/07, nao 01/08", () => {
+    // 2026-08-01T01:00:00Z = 31/07/2026 22:00 em Sao Paulo (UTC-3).
+    const instante = new Date("2026-08-01T01:00:00Z");
+    expect(instante.toISOString().slice(0, 10)).toBe("2026-08-01"); // o bug
+    expect(dataDeHojeSP(instante)).toBe("2026-07-31");
+    expect(mesDeHojeSP(instante)).toBe("2026-07");
+  });
+
+  it("meio-dia bate nos dois jeitos", () => {
+    const instante = new Date("2026-07-15T15:00:00Z");
+    expect(dataDeHojeSP(instante)).toBe("2026-07-15");
+  });
+
+  it("00h30 UTC ainda e' o dia anterior no Brasil", () => {
+    expect(dataDeHojeSP(new Date("2026-03-10T00:30:00Z"))).toBe("2026-03-09");
+  });
+
+  it("sempre devolve YYYY-MM-DD", () => {
+    expect(dataDeHojeSP()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(mesDeHojeSP()).toMatch(/^\d{4}-\d{2}$/);
+  });
+});
+
+describe("@regression addMonthKey", () => {
+  it("anda para frente e para tras dentro do ano", () => {
+    expect(addMonthKey("2026-07", 1)).toBe("2026-08");
+    expect(addMonthKey("2026-07", -1)).toBe("2026-06");
+  });
+
+  it("vira o ano nas duas direcoes", () => {
+    expect(addMonthKey("2026-12", 1)).toBe("2027-01");
+    expect(addMonthKey("2026-01", -1)).toBe("2025-12");
+  });
+
+  it("salta varios meses", () => {
+    expect(addMonthKey("2026-01", 25)).toBe("2028-02");
+    expect(addMonthKey("2026-03", -15)).toBe("2024-12");
+  });
+
+  it("ida e volta e' identidade", () => {
+    for (const m of ["2026-01", "2026-12", "2027-06"]) {
+      expect(addMonthKey(addMonthKey(m, 7), -7)).toBe(m);
+    }
+  });
+
+  it("aceita uma data completa e devolve so a chave do mes", () => {
+    expect(addMonthKey("2026-11-30", 2)).toBe("2027-01");
   });
 });
 

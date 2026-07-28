@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 
 type Entity = { id: string; name: string; type: string };
 type Account = {
@@ -18,7 +18,28 @@ type Account = {
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const accountTypes = ["CORRENTE", "POUPANCA", "CARTAO", "INVESTIMENTO", "DINHEIRO", "OUTRO"];
+const accountTypes = [
+  "CORRENTE",
+  "POUPANCA",
+  "CARTAO",
+  "INVESTIMENTO",
+  "DINHEIRO",
+  "VALE_ALIMENTACAO",
+  "VALE_REFEICAO",
+  "OUTRO",
+];
+
+// VALE_ALIMENTACAO -> "Vale alimentacao (VA)"
+const accountTypeLabel: Record<string, string> = {
+  CORRENTE: "Conta corrente",
+  POUPANCA: "Poupanca",
+  CARTAO: "Cartao de credito",
+  INVESTIMENTO: "Investimento",
+  DINHEIRO: "Dinheiro",
+  VALE_ALIMENTACAO: "Vale alimentacao (VA)",
+  VALE_REFEICAO: "Vale refeicao (VR)",
+  OUTRO: "Outro",
+};
 
 export default function ContasPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -36,8 +57,8 @@ export default function ContasPage() {
       setAccounts(accRes);
       setEntities(entRes);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -57,8 +78,8 @@ export default function ContasPage() {
       setForm({ name: "", type: "CORRENTE", entityId: "", balance: "" });
       setShowForm(false);
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -66,8 +87,8 @@ export default function ContasPage() {
     try {
       await postJson("/api/contas", { id: accountId, entityId: entityId || null });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -108,7 +129,7 @@ export default function ContasPage() {
             >
               {accountTypes.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {accountTypeLabel[t] ?? t}
                 </option>
               ))}
             </select>

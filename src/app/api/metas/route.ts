@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       name: body.name,
       targetAmount: body.targetAmount,
       currentAmount: body.currentAmount,
+      monthlyAmount: body.monthlyAmount,
       targetDate: body.targetDate ?? null,
     });
   });
