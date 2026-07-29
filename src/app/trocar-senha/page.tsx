@@ -16,7 +16,7 @@ export default function TrocarSenhaPage() {
     e.preventDefault();
     setErro("");
     if (form.newPassword !== form.confirm) {
-      setErro("As senhas nao conferem.");
+      setErro("As senhas não conferem.");
       return;
     }
     setSalvando(true);
@@ -37,7 +37,7 @@ export default function TrocarSenhaPage() {
         <p className="eyebrow text-honey-deep">Primeiro acesso</p>
         <h1 className="mt-2 font-serif text-2xl text-ink">Crie a sua senha</h1>
         <p className="mt-1 text-sm text-sage">
-          Voce entrou com a senha temporaria. Escolha a definitiva: 8+ caracteres,
+          Você entrou com a senha temporária. Escolha a definitiva: 8+ caracteres,
           com maiuscula, minuscula e numero.
         </p>
 

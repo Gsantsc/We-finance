@@ -60,6 +60,12 @@ async function main() {
     try {
       // begin() garante tudo-ou-nada: um erro no meio nao deixa meia migracao.
       await sql.begin(async (tx) => {
+        // O timeout padrao do pooler derruba DDL que precisa esperar lock:
+        // recriar uma view enquanto o app le dela ja bastou para falhar. O
+        // lock_timeout separado evita ficar preso indefinidamente atras de uma
+        // conexao esquecida - falha rapido e avisa em vez de travar.
+        await tx`SET LOCAL statement_timeout = '120s'`;
+        await tx`SET LOCAL lock_timeout = '15s'`;
         await tx.unsafe(conteudo);
         await tx`INSERT INTO public.schema_migrations (version) VALUES (${arquivo})`;
       });

@@ -38,10 +38,10 @@ export async function POST(req: NextRequest) {
     const body = validate(registerSchema, await readJson(req));
 
     if (!emailPermitido(body.email)) {
-      throw new ApiError("Este email nao esta autorizado a se cadastrar.", 403);
+      throw new ApiError("Este email não esta autorizado a se cadastrar.", 403);
     }
     if (body.tipo === "CASAL" && !emailPermitido(body.partnerEmail!)) {
-      throw new ApiError("O email do(a) parceiro(a) nao esta autorizado a se cadastrar.", 403);
+      throw new ApiError("O email do(a) parceiro(a) não esta autorizado a se cadastrar.", 403);
     }
 
     if (await getUserByEmail(body.email)) throw new ApiError("Email ja cadastrado.", 409);
@@ -83,8 +83,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       message:
         body.tipo === "CASAL"
-          ? "Contas criadas. Voces dois receberao um email de confirmacao."
-          : "Conta criada. Voce recebera um email de confirmacao.",
+          ? "Contas criadas. Vocês dois receberao um email de confirmação."
+          : "Conta criada. Você recebera um email de confirmação.",
     };
   });
 }

@@ -162,12 +162,12 @@ export default function TransacoesPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-serif text-3xl text-ink">Lancamentos</h1>
+          <h1 className="font-serif text-3xl text-ink">Lançamentos</h1>
           <div className="flex items-center gap-2">
             <Link href="/regras" className="btn-ghost">Regras</Link>
             <Link href="/importar" className="btn-ghost">Importar CSV</Link>
             <button onClick={() => (showForm ? resetForm() : setShowForm(true))} className="btn-primary">
-              {showForm ? "Cancelar" : "Nova transacao"}
+              {showForm ? "Cancelar" : "Nova transação"}
             </button>
           </div>
         </div>
@@ -213,7 +213,7 @@ export default function TransacoesPage() {
             />
             <input
               required
-              placeholder="Descricao"
+              placeholder="Descrição"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="input sm:col-span-2"
@@ -290,10 +290,10 @@ export default function TransacoesPage() {
               {enviando
                 ? "Salvando..."
                 : editingId
-                ? "Salvar alteracao"
+                ? "Salvar alteração"
                 : parcelas > 1
                 ? `Salvar em ${parcelas}x`
-                : "Salvar transacao"}
+                : "Salvar transação"}
             </button>
           </form>
         )}
@@ -303,12 +303,12 @@ export default function TransacoesPage() {
             <thead className="bg-pine/[0.04] text-left text-sage">
               <tr>
                 <th className="px-4 py-2">Data</th>
-                <th className="px-4 py-2">Descricao</th>
+                <th className="px-4 py-2">Descrição</th>
                 <th className="px-4 py-2">Conta</th>
                 <th className="px-4 py-2">Entidade</th>
                 <th className="px-4 py-2">Categoria</th>
                 <th className="px-4 py-2 text-right">Valor</th>
-                <th className="px-4 py-2 text-right">Acoes</th>
+                <th className="px-4 py-2 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -353,7 +353,7 @@ export default function TransacoesPage() {
               {!carregando && transactions.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-center text-sage">
-                    Nenhuma transacao ainda.
+                    Nenhuma transação ainda.
                   </td>
                 </tr>
               )}

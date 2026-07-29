@@ -9,8 +9,8 @@ import SinoNotificacoes from "./SinoNotificacoes";
 const links = [
   { href: "/dashboard", label: "Painel" },
   { href: "/contas", label: "Contas" },
-  { href: "/transacoes", label: "Lancamentos" },
-  { href: "/orcamentos", label: "Orcamentos" },
+  { href: "/transacoes", label: "Lançamentos" },
+  { href: "/orcamentos", label: "Orçamentos" },
   { href: "/metas", label: "Metas" },
   { href: "/contas-a-pagar", label: "A pagar" },
   { href: "/entidades", label: "Entidades" },
@@ -84,7 +84,7 @@ export default function NavBar() {
           </Link>
           <SinoNotificacoes />
           {primeiroNome && (
-            <span className="hidden text-sm text-cream/70 md:inline">Ola, {primeiroNome}</span>
+            <span className="hidden text-sm text-cream/70 md:inline">Olá, {primeiroNome}</span>
           )}
           <button
             onClick={sair}
@@ -112,7 +112,7 @@ export default function NavBar() {
         <nav className="border-t border-cream/10 px-4 py-3 lg:hidden">
           <div className="grid grid-cols-2 gap-1">
             <Link href="/novo" className="col-span-2 rounded-lg bg-honey px-3 py-2 text-center text-sm font-semibold text-pine-deep">
-              + Lancar gasto
+              + Lançar gasto
             </Link>
             {[...links, ...extras].map((link) => (
               <Link

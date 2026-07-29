@@ -27,7 +27,7 @@ export async function POST() {
   try {
     const { session, householdId } = await requireHousehold();
     if (!podeSincronizar(session.user.email)) {
-      throw new ApiError("Sincronizacao nao habilitada para este usuario.", 403);
+      throw new ApiError("Sincronização não habilitada para este usuário.", 403);
     }
 
     const items = await listItems();
@@ -73,7 +73,7 @@ export async function POST() {
     // Mesmo shape { code, message } das demais rotas. Num 500 a mensagem crua
     // fica so no log - ela pode ecoar a resposta bruta da Pluggy.
     const { body, status } = corpoDeErro(err);
-    if (status >= 500) console.error("[sync] erro nao tratado:", err);
+    if (status >= 500) console.error("[sync] erro não tratado:", err);
     return NextResponse.json(body, { status });
   }
 }

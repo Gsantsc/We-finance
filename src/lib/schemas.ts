@@ -22,18 +22,18 @@ const id = z.string().min(1, "obrigatorio");
 const nome = z.string().trim().min(1, "obrigatorio").max(120, "muito longo");
 const cor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "use o formato #rrggbb");
 const valor = z
-  .number({ invalid_type_error: "precisa ser um numero" })
-  .finite("precisa ser um numero");
+  .number({ invalid_type_error: "precisa ser um número" })
+  .finite("precisa ser um número");
 const data = z
   .string()
-  .refine((v) => !Number.isNaN(Date.parse(v)), "data invalida");
+  .refine((v) => !Number.isNaN(Date.parse(v)), "data inválida");
 
 // ---------- Cadastro ----------
 
 // Senha inicial de todo cadastro novo; o primeiro login obriga a troca.
 export const SENHA_PADRAO = "Muda@123";
 
-const email = z.string().trim().toLowerCase().email("email invalido");
+const email = z.string().trim().toLowerCase().email("email inválido");
 
 // Conta "CASAL" cadastra duas pessoas de uma vez (ambas recebem o email de
 // confirmacao); "UNICA" cadastra so o titular. Ninguem escolhe senha aqui -
@@ -49,9 +49,9 @@ export const registerSchema = z
   .superRefine((v, ctx) => {
     if (v.tipo === "CASAL") {
       if (!v.partnerName)
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerName"], message: "obrigatorio para conta casal" });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerName"], message: "obrigatório para conta casal" });
       if (!v.partnerEmail)
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerEmail"], message: "obrigatorio para conta casal" });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerEmail"], message: "obrigatório para conta casal" });
       if (v.partnerEmail && v.partnerEmail === v.email)
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerEmail"], message: "use um email diferente do titular" });
     }
@@ -61,10 +61,10 @@ export const registerSchema = z
 export const changePasswordSchema = z.object({
   newPassword: z
     .string()
-    .min(8, "minimo 8 caracteres")
+    .min(8, "mínimo 8 caracteres")
     .regex(/[a-z]/, "precisa de letra minuscula")
     .regex(/[A-Z]/, "precisa de letra maiuscula")
-    .regex(/[0-9]/, "precisa de numero"),
+    .regex(/[0-9]/, "precisa de número"),
 });
 
 // ---------- Entidades ----------
@@ -142,9 +142,9 @@ export const transactionUpdateSchema = z.object({
   notes: z.string().trim().max(500).nullish(),
 });
 
-const mes = z.number().int().min(1, "mes de 1 a 12").max(12, "mes de 1 a 12");
+const mes = z.number().int().min(1, "mês de 1 a 12").max(12, "mês de 1 a 12");
 const ano = z.number().int().min(2000).max(2100);
-const valorPositivo = valor.refine((v) => v >= 0, "nao pode ser negativo");
+const valorPositivo = valor.refine((v) => v >= 0, "não pode ser negativo");
 
 // ---------- Orcamentos (budgets) ----------
 
@@ -190,7 +190,7 @@ export const goalContributionCreateSchema = z.object({
 
 const importRowSchema = z.object({
   date: data,
-  description: z.string().trim().min(1, "descricao vazia").max(300),
+  description: z.string().trim().min(1, "descrição vazia").max(300),
   amount: valor.refine((v) => v !== 0, "valor zero"),
   categoryName: z.string().trim().max(120).nullish(),
 });
@@ -198,7 +198,7 @@ const importRowSchema = z.object({
 export const importSchema = z.object({
   accountId: id,
   filename: z.string().trim().max(200).nullish(),
-  rows: z.array(importRowSchema).min(1, "nenhuma linha para importar").max(5000, "no maximo 5000 linhas por vez"),
+  rows: z.array(importRowSchema).min(1, "nenhuma linha para importar").max(5000, "no máximo 5000 linhas por vez"),
 });
 
 // ---------- Contas a pagar (bills) ----------

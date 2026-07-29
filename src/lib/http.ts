@@ -57,7 +57,7 @@ export function deleteJson<T>(url: string): Promise<T> {
 // de conexao em vez de "Failed to fetch".
 export function mensagemDeErro(err: unknown): string {
   if (err instanceof ApiRequestError) return err.message;
-  if (err instanceof TypeError) return "Sem conexao com o servidor. Tente de novo.";
+  if (err instanceof TypeError) return "Sem conexão com o servidor. Tente de novo.";
   if (err instanceof Error && err.message) return err.message;
-  return "Nao foi possivel completar a acao.";
+  return "Não foi possível completar a ação.";
 }

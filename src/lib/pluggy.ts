@@ -22,7 +22,7 @@ async function getApiKey(): Promise<string> {
 
   if (!clientId || !clientSecret) {
     throw new Error(
-      "PLUGGY_CLIENT_ID / PLUGGY_CLIENT_SECRET nao configurados no .env. Veja o README."
+      "PLUGGY_CLIENT_ID / PLUGGY_CLIENT_SECRET não configurados no .env. Veja o README."
     );
   }
 

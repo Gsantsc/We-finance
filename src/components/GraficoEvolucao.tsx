@@ -110,10 +110,10 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
   return (
     <div className="card p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-medium text-ink">Evolucao</h3>
+        <h3 className="font-medium text-ink">Evolução</h3>
         <p className="text-xs text-sage">
           {dados.length === 1
-            ? "Primeiro mes com lancamento - o historico aparece conforme os meses passam"
+            ? "Primeiro mês com lançamento - o histórico aparece conforme os meses passam"
             : `Ultimos ${dados.length} meses ate o mes selecionado`}
         </p>
       </div>
@@ -254,7 +254,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
           <table className="w-full min-w-[380px] text-xs">
             <thead className="text-left text-sage">
               <tr>
-                <th className="py-1.5 pr-3 font-medium">Mes</th>
+                <th className="py-1.5 pr-3 font-medium">Mês</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Receitas</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Despesas</th>
                 <th className="py-1.5 text-right font-medium">Liquido</th>

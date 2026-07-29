@@ -123,12 +123,12 @@ export default function ImportarPage() {
       <NavBar />
       <main className="mx-auto max-w-4xl space-y-8 px-4 py-8">
         <div>
-          <p className="eyebrow text-honey-deep">Migrar historico</p>
+          <p className="eyebrow text-honey-deep">Migrar histórico</p>
           <h1 className="mt-1 font-serif text-3xl text-ink">Importar planilha</h1>
           <p className="mt-1 text-sm text-sage">
             Traga seus gastos de uma planilha em CSV. No Excel ou Google Sheets:
             Arquivo → Salvar como / Baixar → CSV. O arquivo fica no seu navegador;
-            so os lancamentos escolhidos sao enviados.
+            só os lançamentos escolhidos são enviados.
           </p>
         </div>
 
@@ -137,16 +137,16 @@ export default function ImportarPage() {
         {resultado ? (
           <div className="card space-y-4 p-8 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-pine/8 text-2xl">✓</div>
-            <h2 className="font-serif text-2xl text-ink">Importacao concluida</h2>
+            <h2 className="font-serif text-2xl text-ink">Importação concluída</h2>
             <p className="text-sm text-sage">
-              <strong className="text-ink">{resultado.created}</strong> lancamento(s) importado(s)
+              <strong className="text-ink">{resultado.created}</strong> lançamento(s) importado(s)
               {resultado.skipped > 0 && (
                 <> · <strong className="text-ink">{resultado.skipped}</strong> ignorado(s) (ja existiam ou repetidos)</>
               )}
               .
             </p>
             <div className="flex justify-center gap-3">
-              <Link href="/transacoes" className="btn-primary">Ver lancamentos</Link>
+              <Link href="/transacoes" className="btn-primary">Ver lançamentos</Link>
               <button
                 onClick={() => {
                   setResultado(null);
@@ -176,7 +176,7 @@ export default function ImportarPage() {
                 </select>
                 {accounts.length === 0 && (
                   <p className="text-xs text-sage">
-                    Voce ainda nao tem contas. Crie uma em{" "}
+                    Você ainda não tem contas. Crie uma em{" "}
                     <Link href="/contas" className="link-honey">Contas</Link> primeiro.
                   </p>
                 )}
@@ -202,7 +202,7 @@ export default function ImportarPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   {[
                     { key: "date", label: "Data" },
-                    { key: "description", label: "Descricao" },
+                    { key: "description", label: "Descrição" },
                     { key: "amount", label: "Valor" },
                     { key: "category", label: "Categoria (opcional)" },
                   ].map((f) => (
@@ -236,7 +236,7 @@ export default function ImportarPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="eyebrow">Previa</h2>
                   <p className="text-xs text-sage">
-                    {validos.length} pronto(s){invalidos > 0 && ` · ${invalidos} com problema (serao ignorados)`}
+                    {validos.length} pronto(s){invalidos > 0 && ` · ${invalidos} com problema (serão ignorados)`}
                   </p>
                 </div>
                 <div className="card overflow-x-auto">
@@ -244,7 +244,7 @@ export default function ImportarPage() {
                     <thead className="bg-pine/[0.04] text-left text-sage">
                       <tr>
                         <th className="px-4 py-2 font-medium">Data</th>
-                        <th className="px-4 py-2 font-medium">Descricao</th>
+                        <th className="px-4 py-2 font-medium">Descrição</th>
                         <th className="px-4 py-2 font-medium">Categoria</th>
                         <th className="px-4 py-2 text-right font-medium">Valor</th>
                       </tr>
@@ -253,21 +253,21 @@ export default function ImportarPage() {
                       {parsed.slice(0, 12).map((p, i) => (
                         <tr key={i} className={`border-t border-pine/8 ${p.valido ? "" : "bg-clay/[0.04]"}`}>
                           <td className="px-4 py-2 text-sage">
-                            {p.date ?? <span className="text-clay">data invalida</span>}
+                            {p.date ?? <span className="text-clay">data inválida</span>}
                           </td>
                           <td className="px-4 py-2 text-ink">{p.description || <span className="text-clay">vazia</span>}</td>
                           <td className="px-4 py-2 text-sage">{p.categoryName ?? "-"}</td>
                           <td className={`px-4 py-2 text-right font-semibold tnum ${
                             p.amount == null ? "text-clay" : p.amount < 0 ? "text-clay" : "text-pine-600"
                           }`}>
-                            {p.amount == null ? "invalido" : currency.format(p.amount)}
+                            {p.amount == null ? "inválido" : currency.format(p.amount)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   {parsed.length > 12 && (
-                    <p className="px-4 py-2 text-xs text-sage">+ {parsed.length - 12} linha(s) nao mostradas.</p>
+                    <p className="px-4 py-2 text-xs text-sage">+ {parsed.length - 12} linha(s) não mostradas.</p>
                   )}
                 </div>
 
@@ -275,7 +275,7 @@ export default function ImportarPage() {
                   {enviando
                     ? "Importando..."
                     : accountId
-                    ? `Importar ${validos.length} lancamento(s)`
+                    ? `Importar ${validos.length} lançamento(s)`
                     : "Escolha a conta acima"}
                 </button>
               </section>

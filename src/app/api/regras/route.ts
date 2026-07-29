@@ -3,7 +3,7 @@ import { handle, readJson, requireHousehold, validate, ApiError } from "@/lib/ap
 import { ruleCreateSchema } from "@/lib/schemas";
 import { listRules, createRule, setRuleActive, deleteRule } from "@/lib/repo";
 
-// Regras de categorizacao: "descricao contem X -> categoria Y". Rodam no import
+// Regras de categorizacao: "descrição contem X -> categoria Y". Rodam no import
 // e no lancamento manual sem categoria, para pre-preencher a categoria.
 
 export async function GET() {

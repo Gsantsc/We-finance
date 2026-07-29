@@ -90,7 +90,7 @@ export default function OrcamentosPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-serif text-3xl text-ink">Orcamentos</h1>
+          <h1 className="font-serif text-3xl text-ink">Orçamentos</h1>
           <div className="flex items-center gap-2">
             <select
               value={month}
@@ -118,7 +118,7 @@ export default function OrcamentosPage() {
               onClick={() => setShowForm((v) => !v)}
               className="btn-primary"
             >
-              {showForm ? "Cancelar" : "Novo orcamento"}
+              {showForm ? "Cancelar" : "Novo orçamento"}
             </button>
           </div>
         </div>
@@ -133,7 +133,7 @@ export default function OrcamentosPage() {
         {budgets.length > 0 && (
           <div className="card p-5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-sage">Total do mes</span>
+              <span className="text-sage">Total do mês</span>
               <span className="font-medium">
                 {currency.format(totalGasto)} de {currency.format(totalOrcado)}
               </span>
@@ -182,7 +182,7 @@ export default function OrcamentosPage() {
               type="number"
               step="0.01"
               min="0"
-              placeholder="Valor do mes"
+              placeholder="Valor do mês"
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
               className="input"
@@ -231,7 +231,7 @@ export default function OrcamentosPage() {
           ))}
           {budgets.length === 0 && (
             <p className="text-sm text-sage">
-              Nenhum orcamento neste mes. Crie um em "Novo orcamento".
+              Nenhum orcamento neste mes. Crie um em "Novo orçamento".
             </p>
           )}
         </div>

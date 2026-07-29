@@ -84,7 +84,7 @@ export default function EntidadesPage() {
         </div>
         <p className="text-sm text-sage">
           Entidades organizam suas contas em Casa (compartilhado), Pessoal (individual) ou PJ (empresa).
-          Crie quantas precisar - por exemplo, um PJ para cada um de voces.
+          Crie quantas precisar - por exemplo, um PJ para cada um de vocês.
         </p>
         <p className="text-sm text-sage">
           O <strong>dono</strong> decide de quem e' o dinheiro no dashboard: com dono, o valor entra na

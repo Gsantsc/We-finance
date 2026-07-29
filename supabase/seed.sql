@@ -16,13 +16,16 @@ select gen_random_uuid()::text, v.name, v.icon, v.is_income
 from (values
   -- despesas que faltavam
   ('Mercado',    '🛒', false),
-  ('Contas',     '🧾', false),   -- luz, agua, internet
-  ('Vestuario',  '👕', false),
+  ('Contas',     '🧾', false),   -- luz, água, internet
+  ('Vestuário',  '👕', false),
   -- receitas que faltavam
   ('Freelance',  '💼', true),
   ('Rendimentos','📈', true),
   ('Reembolso',  '↩️', true)
 ) as v(name, icon, is_income)
+-- Compara sem acento para nao criar "Vestuário" ao lado de um "Vestuario" que
+-- ja exista (a unique e' sobre o nome exato e nao pegaria a gemea).
 where not exists (
-  select 1 from public.categories c where c.name = v.name
+  select 1 from public.categories c
+  where public.sem_acento(c.name) = public.sem_acento(v.name)
 );

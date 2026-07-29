@@ -66,10 +66,10 @@ export default function NovoGastoPage() {
       <main className="mx-auto max-w-md space-y-6 px-4 py-8">
         <div>
           <p className="eyebrow text-honey-deep">Rapido</p>
-          <h1 className="mt-1 font-serif text-3xl text-ink">Lancar gasto</h1>
+          <h1 className="mt-1 font-serif text-3xl text-ink">Lançar gasto</h1>
           <p className="mt-1 text-sm text-sage">
             Uma despesa de hoje, em segundos. Para receita ou outra data, use{" "}
-            <Link href="/transacoes" className="link-honey">Lancamentos</Link>.
+            <Link href="/transacoes" className="link-honey">Lançamentos</Link>.
           </p>
         </div>
 
@@ -129,7 +129,7 @@ export default function NovoGastoPage() {
           </div>
 
           <button type="submit" disabled={salvando} className="btn-accent w-full py-3">
-            {salvando ? "Salvando..." : "Lancar gasto"}
+            {salvando ? "Salvando..." : "Lançar gasto"}
           </button>
         </form>
       </main>

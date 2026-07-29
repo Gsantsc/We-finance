@@ -8,7 +8,7 @@ import { Resend } from "resend";
 
 function getResend(): Resend {
   const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Error("RESEND_API_KEY nao definida.");
+  if (!key) throw new Error("RESEND_API_KEY não definida.");
   return new Resend(key);
 }
 
@@ -41,5 +41,5 @@ export async function sendVerificationEmail(to: string, name: string, rawToken: 
       </div>
     `,
   });
-  if (error) throw new Error(`Falha ao enviar email de verificacao: ${error.message}`);
+  if (error) throw new Error(`Falha ao enviar e-mail de verificação: ${error.message}`);
 }

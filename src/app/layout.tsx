@@ -22,7 +22,7 @@ const sans = Hanken_Grotesk({
 
 export const metadata: Metadata = {
   title: "We Finance",
-  description: "As financas da casa, do casal e de cada um - no mesmo lugar.",
+  description: "As finanças da casa, do casal e de cada um - no mesmo lugar.",
   manifest: "/manifest.webmanifest",
   applicationName: "We Finance",
   icons: {

@@ -16,7 +16,7 @@ export { ApiError };
 
 export async function requireSession() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) throw new ApiError("Nao autenticado", 401);
+  if (!session?.user) throw new ApiError("Não autenticado", 401);
   return session;
 }
 
@@ -28,7 +28,7 @@ export async function requireHousehold() {
     throw new ApiError("Troque a senha temporaria antes de continuar.", 403);
   }
   const householdId = session.user.householdId;
-  if (!householdId) throw new ApiError("Usuario sem casa associada.", 403);
+  if (!householdId) throw new ApiError("Usuário sem casa associada.", 403);
   return { session, householdId };
 }
 
@@ -36,7 +36,7 @@ export async function readJson(req: Request): Promise<unknown> {
   try {
     return await req.json();
   } catch {
-    throw new ApiError("Corpo invalido: era esperado um JSON.");
+    throw new ApiError("Corpo inválido: era esperado um JSON.");
   }
 }
 
@@ -58,7 +58,7 @@ export async function handle(fn: () => Promise<unknown> | unknown) {
     return NextResponse.json(await fn());
   } catch (err) {
     const { body, status } = corpoDeErro(err);
-    if (status >= 500) console.error("[api] erro nao tratado:", err);
+    if (status >= 500) console.error("[api] erro não tratado:", err);
     return NextResponse.json(body, { status });
   }
 }

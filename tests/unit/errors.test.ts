@@ -62,12 +62,12 @@ describe("@regression mensagemDeErro", () => {
 
   it("troca falha de rede por aviso de conexao (nada de 'Failed to fetch')", () => {
     expect(mensagemDeErro(new TypeError("Failed to fetch"))).toBe(
-      "Sem conexao com o servidor. Tente de novo."
+      "Sem conexão com o servidor. Tente de novo."
     );
   });
 
   it("tem texto de fallback para o que nao e' Error", () => {
-    expect(mensagemDeErro("qualquer coisa")).toBe("Nao foi possivel completar a acao.");
-    expect(mensagemDeErro(null)).toBe("Nao foi possivel completar a acao.");
+    expect(mensagemDeErro("qualquer coisa")).toBe("Não foi possível completar a ação.");
+    expect(mensagemDeErro(null)).toBe("Não foi possível completar a ação.");
   });
 });

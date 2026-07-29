@@ -101,13 +101,13 @@ export default function MetasPage() {
   }
 
   // Grava um APORTE (linha datada em goal_contributions), nao um numero solto.
-  // E' o que permite responder "quanto entrou neste mes" no dashboard.
+  // E' o que permite responder "quanto entrou neste mês" no dashboard.
   async function depositar(id: string) {
     const valor = prompt("Quanto guardar nesta meta? (use negativo para tirar)");
     if (valor === null) return;
     const n = lerValorBR(valor);
     if (n === null) {
-      setErro(`Nao entendi o valor "${valor}". Use por exemplo 1.500,50 ou 1500,50.`);
+      setErro(`Não entendi o valor "${valor}". Use por exemplo 1.500,50 ou 1500,50.`);
       return;
     }
     if (n === 0) return;
@@ -198,7 +198,7 @@ export default function MetasPage() {
               type="number"
               step="0.01"
               min="0"
-              placeholder="Ja guardado"
+              placeholder="Já guardado"
               value={form.currentAmount}
               onChange={(e) => setForm({ ...form, currentAmount: e.target.value })}
               className="input"
@@ -207,7 +207,7 @@ export default function MetasPage() {
               type="number"
               step="0.01"
               min="0"
-              placeholder="Investimento/mes"
+              placeholder="Investimento/mês"
               value={form.monthlyAmount}
               onChange={(e) => setForm({ ...form, monthlyAmount: e.target.value })}
               className="input"
@@ -263,13 +263,13 @@ export default function MetasPage() {
                   <p className="font-semibold text-ink tnum">{currency.format(restante)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-sage">Aporte no mes</p>
+                  <p className="text-xs text-sage">Aporte no mês</p>
                   <p className="font-semibold text-ink tnum">
                     {currency.format(p?.contributedThisMonth ?? 0)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-sage">Planejado/mes</p>
+                  <p className="text-xs text-sage">Planejado/mês</p>
                   <p className="font-semibold text-ink tnum">{currency.format(g.monthlyAmount || 0)}</p>
                 </div>
               </div>

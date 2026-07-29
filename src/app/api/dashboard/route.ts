@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const { householdId } = await requireHousehold();
     const pedido = new URL(req.url).searchParams.get("mes");
     const mes = pedido ?? mesDeHojeSP();
-    if (!MES.test(mes)) throw new ApiError("Mes invalido: use o formato AAAA-MM.");
+    if (!MES.test(mes)) throw new ApiError("Mês inválido: use o formato AAAA-MM.");
     return dashboardMonth(householdId, mes);
   });
 }

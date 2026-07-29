@@ -77,7 +77,7 @@ export function lerValorBR(entrada: string): number | null {
 // new Date().toISOString() devolve UTC. Como BRT e' UTC-3, das 21h em diante o
 // UTC ja esta no dia seguinte: um gasto lancado 22h de 31/07 virava 01/08 e caia
 // no mes errado. Pior, as views do banco usam now() at time zone 'America/
-// Sao_Paulo', entao servidor e cliente discordavam de qual mes e' "o corrente".
+// Sao_Paulo', entao servidor e cliente discordavam de qual mês e' "o corrente".
 // en-CA formata justamente como YYYY-MM-DD.
 export function dataDeHojeSP(agora = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -108,7 +108,7 @@ export type BillStatus = {
   vencimentoISO: string;
 };
 
-// "Pago este mes?" = ultimo pagamento caiu no mes/ano atual.
+// "Pago este mês?" = ultimo pagamento caiu no mes/ano atual.
 // Vencimento deste mes ajusta se o mes nao tem aquele dia (ex. dia 31 em fevereiro).
 export function billStatus(dueDay: number, lastPaidAt: string | null, hoje = new Date()): BillStatus {
   const ano = hoje.getFullYear();

@@ -66,8 +66,8 @@ export default function RegistrarPage() {
       <div className="w-full max-w-md animate-rise">
         <Wordmark />
         <div className="card mt-8 p-8">
-          <h1 className="font-serif text-2xl text-ink">Criar a conta de voces</h1>
-          <p className="mt-1 text-sm text-sage">Comecem juntos, ou so voce por enquanto.</p>
+          <h1 className="font-serif text-2xl text-ink">Criar a conta de vocês</h1>
+          <p className="mt-1 text-sm text-sage">Comecem juntos, ou so você por enquanto.</p>
 
           {/* Toggle casal / unica: a escolha do casal vem primeiro (o coracao do app). */}
           <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-pine/5 p-1">
@@ -121,8 +121,8 @@ export default function RegistrarPage() {
 
             <p className="text-xs leading-relaxed text-sage">
               {tipo === "CASAL"
-                ? "Voces dois recebem um email de confirmacao e entram com a senha temporaria Muda@123."
-                : "Voce recebe um email de confirmacao e entra com a senha temporaria Muda@123."}
+                ? "Vocês dois recebem um email de confirmação e entram com a senha temporaria Muda@123."
+                : "Você recebe um email de confirmação e entra com a senha temporaria Muda@123."}
             </p>
 
             {erro && <p className="text-sm font-medium text-clay">{erro}</p>}

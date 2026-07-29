@@ -94,8 +94,8 @@ export default function RegrasPage() {
           <p className="eyebrow text-honey-deep">Automatizar</p>
           <h1 className="mt-1 font-serif text-3xl text-ink">Regras de categoria</h1>
           <p className="mt-1 text-sm text-sage">
-            Quando a descricao de um lancamento casa com o texto, a categoria e' preenchida
-            sozinha — na importacao de planilha e nos lancamentos sem categoria. A regra de
+            Quando a descrição de um lançamento casa com o texto, a categoria é preenchida
+            sozinha — na importação de planilha e nos lançamentos sem categoria. A regra de
             maior prioridade vence.
           </p>
         </div>
@@ -158,7 +158,7 @@ export default function RegrasPage() {
           })}
           {rules.length === 0 && (
             <p className="px-5 py-10 text-center text-sm text-sage">
-              Nenhuma regra ainda. Crie uma acima — ex: descricao contem &ldquo;ifood&rdquo; → Alimentacao.
+              Nenhuma regra ainda. Crie uma acima — ex: descrição contém &ldquo;ifood&rdquo; → Alimentação.
             </p>
           )}
         </div>

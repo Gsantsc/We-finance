@@ -60,6 +60,9 @@ type Dados = {
 
 const mesAtual = mesDeHojeSP;
 
+// Quanto tempo um mes ja carregado continua valendo sem ir ao servidor.
+const TTL_CACHE_MS = 60_000;
+
 function tituloMes(chave: string) {
   const [ano, mes] = chave.split("-");
   return `${nomesMeses[Number(mes) - 1]} de ${ano}`;
@@ -68,10 +71,10 @@ function tituloMes(chave: string) {
 // As 6 linhas do resumo objetivo, na ordem em que se le: o que entra, o que
 // compromete, o que sobra.
 const LINHAS: { rotulo: string; campo: keyof Coluna; dica?: string; destaque?: boolean }[] = [
-  { rotulo: "Salario", campo: "salario", dica: "Entradas na categoria Salario" },
-  { rotulo: "VA", campo: "va", dica: "Entradas em conta Vale alimentacao" },
-  { rotulo: "VR", campo: "vr", dica: "Entradas em conta Vale refeicao" },
-  { rotulo: "Dividas", campo: "dividas", dica: "Parcelas do mes + contas fixas em aberto" },
+  { rotulo: "Salário", campo: "salario", dica: "Entradas na categoria Salário" },
+  { rotulo: "VA", campo: "va", dica: "Entradas em conta Vale alimentação" },
+  { rotulo: "VR", campo: "vr", dica: "Entradas em conta Vale refeição" },
+  { rotulo: "Dívidas", campo: "dividas", dica: "Parcelas do mês + contas fixas em aberto" },
   { rotulo: "Investimentos", campo: "investido", dica: "Entradas em conta de investimento" },
   { rotulo: "Sobra", campo: "sobra", dica: "Renda - saidas - contas fixas - aportes", destaque: true },
 ];
@@ -92,20 +95,42 @@ export default function DashboardPage() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-  const cache = useRef(new Map<string, Dados>());
+  const cache = useRef(new Map<string, { dados: Dados; em: number }>());
+  // Bump manual/automatico que forca uma nova busca ignorando o cache.
+  const [revalidacao, setRevalidacao] = useState(0);
 
   // Guarda qual mes e' o pedido VALIDO agora. Sem isso, clicar rapido em "›"
   // deixa a resposta mais LENTA chegar por ultimo e sobrescrever a do mes que o
   // usuario esta vendo - numeros de um mes sob o titulo de outro, sem erro nenhum.
   const pedidoAtual = useRef(mes);
 
+  // O cache existe para a troca de mes ser instantanea, mas dado de dinheiro nao
+  // pode envelhecer calado: lancar um gasto em /transacoes e voltar mostrava o
+  // numero velho ate dar F5. Ao reabrir a aba, o que estiver vencido e' descartado.
+  useEffect(() => {
+    function aoVoltar() {
+      if (document.visibilityState !== "visible") return;
+      const agora = Date.now();
+      for (const [chave, item] of cache.current) {
+        if (agora - item.em > TTL_CACHE_MS) cache.current.delete(chave);
+      }
+      setRevalidacao((n) => n + 1);
+    }
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => {
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("focus", aoVoltar);
+    };
+  }, []);
+
   useEffect(() => {
     pedidoAtual.current = mes;
     let cancelado = false;
 
     const emCache = cache.current.get(mes);
-    if (emCache) {
-      setDados(emCache);
+    if (emCache && Date.now() - emCache.em <= TTL_CACHE_MS) {
+      setDados(emCache.dados);
       setCarregando(false);
       setErro("");
       return;
@@ -114,7 +139,7 @@ export default function DashboardPage() {
     setCarregando(true);
     getJson<Dados>(`/api/dashboard?mes=${mes}`)
       .then((res) => {
-        cache.current.set(mes, res);
+        cache.current.set(mes, { dados: res, em: Date.now() });
         if (cancelado || pedidoAtual.current !== mes) return;
         setDados(res);
         setErro("");
@@ -133,7 +158,7 @@ export default function DashboardPage() {
     return () => {
       cancelado = true;
     };
-  }, [mes]);
+  }, [mes, revalidacao]);
 
   const casal = dados?.colunas.find((c) => c.isTotal);
   const pessoas = dados?.colunas.filter((c) => !c.isTotal) ?? [];
@@ -149,13 +174,13 @@ export default function DashboardPage() {
 
         <section className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="eyebrow text-honey-deep">Painel do mes</p>
+            <p className="eyebrow text-honey-deep">Painel do mês</p>
             <h1 className="mt-1 font-serif text-4xl text-ink">{tituloMes(mes)}</h1>
             <p className="mt-1 text-sm text-sage">
               {dados ? `${dados.contas.total} conta(s) cadastrada(s).` : "Carregando..."}
             </p>
           </div>
-          <Link href="/novo" className="btn-primary">+ Lancar gasto</Link>
+          <Link href="/novo" className="btn-primary">+ Lançar gasto</Link>
         </section>
 
         {/* Filtro unico acima de tudo que ele afeta - nunca dentro de um card. */}
@@ -163,7 +188,7 @@ export default function DashboardPage() {
           <button
             onClick={() => setMes((m) => addMonthKey(m, -1))}
             className="btn-ghost"
-            aria-label="Mes anterior"
+            aria-label="Mês anterior"
           >
             ‹
           </button>
@@ -171,7 +196,7 @@ export default function DashboardPage() {
             value={mes}
             onChange={(e) => setMes(e.target.value)}
             className="input w-auto"
-            aria-label="Mes exibido"
+            aria-label="Mês exibido"
           >
             {(meses.includes(mes) ? meses : [mes, ...meses]).map((m) => (
               <option key={m} value={m}>{rotuloMesCurto(m)}</option>
@@ -180,15 +205,26 @@ export default function DashboardPage() {
           <button
             onClick={() => setMes((m) => addMonthKey(m, 1))}
             className="btn-ghost"
-            aria-label="Proximo mes"
+            aria-label="Próximo mês"
           >
             ›
           </button>
           {mes !== mesAtual() && (
             <button onClick={() => setMes(mesAtual())} className="link-honey text-sm">
-              voltar para o mes atual
+              voltar para o mês atual
             </button>
           )}
+          <button
+            onClick={() => {
+              cache.current.delete(mes);
+              setRevalidacao((n) => n + 1);
+            }}
+            disabled={carregando}
+            className="btn-ghost ml-auto text-sm disabled:opacity-50"
+            title="Buscar os numeros deste mês de novo"
+          >
+            {carregando ? "Atualizando..." : "Atualizar"}
+          </button>
         </section>
 
         {dados && dados.contas.semEntidade > 0 && (
@@ -210,9 +246,9 @@ export default function DashboardPage() {
           <Recarregando ativo={carregando}>
             <div className="space-y-8">
               <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard label="Receitas do mes" value={casal?.receitas ?? 0} detail="Salario + VA + VR + outras entradas" />
-                <MetricCard label="Dividas do mes" value={casal?.dividas ?? 0} detail="Parcelas + contas fixas em aberto" tone="bad" />
-                <MetricCard label="Investido no mes" value={casal?.investido ?? 0} detail="Entradas em conta de investimento" />
+                <MetricCard label="Receitas do mês" value={casal?.receitas ?? 0} detail="Salário + VA + VR + outras entradas" />
+                <MetricCard label="Dívidas do mês" value={casal?.dividas ?? 0} detail="Parcelas + contas fixas em aberto" tone="bad" />
+                <MetricCard label="Investido no mês" value={casal?.investido ?? 0} detail="Entradas em conta de investimento" />
                 <MetricCard
                   label="Sobra"
                   value={casal?.sobra ?? 0}
@@ -224,7 +260,7 @@ export default function DashboardPage() {
               <GraficoEvolucao dados={dados?.evolucao ?? []} />
 
               <section className="space-y-4">
-                <h2 className="eyebrow">Resumo do mes - cada um e o casal</h2>
+                <h2 className="eyebrow">Resumo do mês - cada um e o casal</h2>
                 <div className="card overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="bg-pine/[0.04] text-left text-sage">
@@ -285,7 +321,7 @@ export default function DashboardPage() {
                         <p className="font-medium text-ink">{m.nome}</p>
                         <p className="text-xs text-sage">
                           {currency.format(m.guardado)} de {currency.format(m.alvo)}
-                          {m.targetDate ? ` | ate ${formatDateBR(m.targetDate)}` : ""}
+                          {m.targetDate ? ` | até ${formatDateBR(m.targetDate)}` : ""}
                         </p>
                         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-pine/10">
                           <div className="h-full bg-honey" style={{ width: `${m.percent}%` }} />
@@ -296,11 +332,11 @@ export default function DashboardPage() {
                         <p className="font-medium tabular-nums">{currency.format(m.restante)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-sage">Aporte no mes</p>
+                        <p className="text-xs text-sage">Aporte no mês</p>
                         <p className="font-medium tabular-nums">{currency.format(m.aporteDoMes)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-sage">Planejado/mes</p>
+                        <p className="text-xs text-sage">Planejado/mês</p>
                         <p className="font-medium tabular-nums">{currency.format(m.planejadoMes)}</p>
                       </div>
                     </div>
@@ -313,7 +349,7 @@ export default function DashboardPage() {
 
               <section className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
-                  <h2 className="eyebrow">Maiores gastos do mes</h2>
+                  <h2 className="eyebrow">Maiores gastos do mês</h2>
                   <div className="card divide-y divide-pine/8">
                     {(dados?.categorias ?? []).map((c) => (
                       <div key={c.id ?? c.nome} className="flex items-center gap-3 px-5 py-3">
@@ -323,7 +359,7 @@ export default function DashboardPage() {
                       </div>
                     ))}
                     {(dados?.categorias ?? []).length === 0 && (
-                      <p className="px-5 py-8 text-center text-sm text-sage">Sem gastos neste mes.</p>
+                      <p className="px-5 py-8 text-center text-sm text-sage">Sem gastos neste mês.</p>
                     )}
                   </div>
                 </div>
@@ -346,13 +382,13 @@ export default function DashboardPage() {
               </section>
 
               <section className="grid gap-4 sm:grid-cols-2">
-                <MetricCard label="Patrimonio total" value={dados?.contas.patrimonio ?? 0} detail="Saldo atual das contas" />
+                <MetricCard label="Patrimônio total" value={dados?.contas.patrimonio ?? 0} detail="Saldo atual das contas" />
                 <MetricCard label="Investimentos" value={dados?.contas.investimentos ?? 0} detail="Saldo em contas de investimento" />
               </section>
 
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="eyebrow">Ultimos lancamentos</h2>
+                  <h2 className="eyebrow">Últimos lançamentos</h2>
                   <Link href="/transacoes" className="link-honey text-sm">Ver todos</Link>
                 </div>
                 <div className="card divide-y divide-pine/8">
@@ -374,7 +410,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   {(dados?.ultimosLancamentos ?? []).length === 0 && (
-                    <p className="px-5 py-10 text-center text-sm text-sage">Nenhum lancamento ainda.</p>
+                    <p className="px-5 py-10 text-center text-sm text-sage">Nenhum lançamento ainda.</p>
                   )}
                 </div>
               </section>

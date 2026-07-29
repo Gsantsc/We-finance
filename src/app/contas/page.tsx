@@ -29,15 +29,15 @@ const accountTypes = [
   "OUTRO",
 ];
 
-// VALE_ALIMENTACAO -> "Vale alimentacao (VA)"
+// VALE_ALIMENTACAO -> "Vale alimentação (VA)"
 const accountTypeLabel: Record<string, string> = {
   CORRENTE: "Conta corrente",
-  POUPANCA: "Poupanca",
-  CARTAO: "Cartao de credito",
+  POUPANCA: "Poupança",
+  CARTAO: "Cartão de crédito",
   INVESTIMENTO: "Investimento",
   DINHEIRO: "Dinheiro",
-  VALE_ALIMENTACAO: "Vale alimentacao (VA)",
-  VALE_REFEICAO: "Vale refeicao (VR)",
+  VALE_ALIMENTACAO: "Vale alimentação (VA)",
+  VALE_REFEICAO: "Vale refeição (VR)",
   OUTRO: "Outro",
 };
 

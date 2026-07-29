@@ -269,7 +269,7 @@ export async function findEntityByName(householdId: string, name: string): Promi
 
 async function assertUserInHousehold(householdId: string, userId: string): Promise<void> {
   const [row] = await sql`SELECT 1 FROM household_members WHERE household_id = ${householdId} AND user_id = ${userId}`;
-  if (!row) throw new ApiError("Usuario nao encontrado nesta casa", 404);
+  if (!row) throw new ApiError("Usuário não encontrado nesta casa", 404);
 }
 
 export async function createEntity(householdId: string, e: {
@@ -288,7 +288,7 @@ export async function createEntity(householdId: string, e: {
 
 export async function updateEntity(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM entities WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Entidade nao encontrada", 404);
+  if (!cur) throw new ApiError("Entidade não encontrada", 404);
   if (patch.ownerId) await assertUserInHousehold(householdId, patch.ownerId);
   const next = {
     name: patch.name ?? cur.name,
@@ -332,7 +332,7 @@ async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
 
 async function assertEntityInHousehold(householdId: string, entityId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM entities WHERE id = ${entityId} AND household_id = ${householdId}`;
-  if (!row) throw new ApiError("Entidade nao encontrada", 404);
+  if (!row) throw new ApiError("Entidade não encontrada", 404);
 }
 
 export async function listAccounts(householdId: string): Promise<Row[]> {
@@ -358,7 +358,7 @@ export async function createAccount(householdId: string, a: {
 
 export async function updateAccount(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM accounts WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Conta nao encontrada", 404);
+  if (!cur) throw new ApiError("Conta não encontrada", 404);
   if (patch.entityId) await assertEntityInHousehold(householdId, patch.entityId);
   const next = {
     name: patch.name ?? cur.name,
@@ -551,7 +551,7 @@ export async function listTransactions(householdId: string, filters: {
 
 async function assertAccountInHousehold(householdId: string, accountId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM accounts WHERE id = ${accountId} AND household_id = ${householdId}`;
-  if (!row) throw new ApiError("Conta nao encontrada", 404);
+  if (!row) throw new ApiError("Conta não encontrada", 404);
 }
 
 // Em conta manual o saldo muda a cada lancamento; delta em CENTAVOS (com sinal).
@@ -559,7 +559,7 @@ async function assertAccountInHousehold(householdId: string, accountId: string):
 async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, deltaCents: number) {
   if (!deltaCents) return;
   const [account] = await tx`SELECT is_manual FROM accounts WHERE id = ${accountId}`;
-  if (!account) throw new ApiError("Conta nao encontrada", 404);
+  if (!account) throw new ApiError("Conta não encontrada", 404);
   if (!account.is_manual) return;
   await tx`UPDATE accounts SET balance = balance + ${deltaCents}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
@@ -639,7 +639,7 @@ export async function updateTransaction(householdId: string, id: string, patch: 
     SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
     WHERE t.id = ${id} AND a.household_id = ${householdId}
   `;
-  if (!cur) throw new ApiError("Transacao nao encontrada", 404);
+  if (!cur) throw new ApiError("Transação não encontrada", 404);
   if (patch.accountId) await assertAccountInHousehold(householdId, patch.accountId);
 
   const oldSignedCents = cur.type === "expense" ? -Number(cur.amount_cents) : Number(cur.amount_cents);
@@ -713,7 +713,7 @@ export async function createRule(householdId: string, r: {
   priority?: number;
 }): Promise<Row> {
   const [cat] = await sql`SELECT id FROM categories WHERE id = ${r.categoryId}`;
-  if (!cat) throw new ApiError("Categoria nao encontrada", 404);
+  if (!cat) throw new ApiError("Categoria não encontrada", 404);
   const id = newId();
   await sql`INSERT INTO categorization_rules (id, household_id, match_type, pattern, category_id, priority, active, created_at)
     VALUES (${id}, ${householdId}, ${r.matchType}, ${r.pattern}, ${r.categoryId}, ${r.priority ?? 0}, true, ${nowIso()})`;
@@ -990,7 +990,7 @@ export async function createGoal(householdId: string, g: {
     // as telas leem o progresso. O usuario digitava 5.000 e via R$ 0,00 / 0%.
     if (inicial !== 0) {
       await tx`INSERT INTO goal_contributions (id, goal_id, household_id, amount_cents, date, note)
-        VALUES (${newId()}, ${id}, ${householdId}, ${inicial}, ${dataDeHojeSP()}, 'Saldo informado na criacao da meta')`;
+        VALUES (${newId()}, ${id}, ${householdId}, ${inicial}, ${dataDeHojeSP()}, 'Saldo informado na criação da meta')`;
     }
   });
   const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
@@ -999,7 +999,7 @@ export async function createGoal(householdId: string, g: {
 
 export async function updateGoal(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Meta nao encontrada", 404);
+  if (!cur) throw new ApiError("Meta não encontrada", 404);
   // deposito/currentAmount chegam em reais; tudo em centavos internamente.
   const patchCents = {
     deposito: patch.deposito === undefined ? undefined : toCents(patch.deposito),
@@ -1087,7 +1087,7 @@ export async function createGoalContribution(householdId: string, c: {
   const [goal] = await sql`
     SELECT id FROM goals WHERE id = ${c.goalId} AND household_id = ${householdId}
   `;
-  if (!goal) throw new ApiError("Meta nao encontrada", 404);
+  if (!goal) throw new ApiError("Meta não encontrada", 404);
 
   const cents = toCents(c.amount);
   if (cents === 0) throw new ApiError("Informe um valor diferente de zero.");
@@ -1323,7 +1323,7 @@ export async function deleteGoalContribution(householdId: string, id: string): P
     SELECT goal_id, amount_cents FROM goal_contributions
     WHERE id = ${id} AND household_id = ${householdId}
   `;
-  if (!row) throw new ApiError("Aporte nao encontrado", 404);
+  if (!row) throw new ApiError("Aporte não encontrado", 404);
   await inTransaction(async (tx) => {
     await tx`DELETE FROM goal_contributions WHERE id = ${id}`;
     await ressincronizarMeta(tx, row.goal_id);
@@ -1372,7 +1372,7 @@ export async function createBill(householdId: string, b: {
 
 export async function updateBill(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM bills WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Conta a pagar nao encontrada", 404);
+  if (!cur) throw new ApiError("Conta a pagar não encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
     amount: patch.amount === undefined ? Number(cur.amount) : toCents(patch.amount),

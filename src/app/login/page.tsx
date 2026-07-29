@@ -8,11 +8,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 const avisosConfirmacao: Record<string, { texto: string; ok: boolean }> = {
   ok: { texto: "Email confirmado! Entre com a senha temporaria Muda@123.", ok: true },
   "ok-casal": {
-    texto: "Emails de voces dois confirmados! Cada um entra com a senha temporaria Muda@123 e cria a sua.",
+    texto: "Emails de vocês dois confirmados! Cada um entra com a senha temporaria Muda@123 e cria a sua.",
     ok: true,
   },
-  expirada: { texto: "Link de confirmacao invalido ou expirado. Faca o cadastro novamente.", ok: false },
-  invalida: { texto: "Link de confirmacao invalido.", ok: false },
+  expirada: { texto: "Link de confirmação inválido ou expirado. Faca o cadastro novamente.", ok: false },
+  invalida: { texto: "Link de confirmação inválido.", ok: false },
 };
 
 function LoginForm() {
@@ -36,7 +36,7 @@ function LoginForm() {
           ? "Confirme seu email antes de entrar (veja sua caixa de entrada)."
           : res.error === "MUITAS_TENTATIVAS"
           ? "Muitas tentativas. Aguarde 15 minutos e tente de novo."
-          : "Email ou senha invalidos."
+          : "E-mail ou senha inválidos."
       );
       return;
     }
@@ -47,7 +47,7 @@ function LoginForm() {
   return (
     <div className="w-full max-w-sm animate-rise">
       <h2 className="font-serif text-3xl text-ink">Bem-vindos de volta</h2>
-      <p className="mt-1 text-sm text-sage">Entre para ver as contas de voces.</p>
+      <p className="mt-1 text-sm text-sage">Entre para ver as contas de vocês.</p>
 
       {aviso && (
         <p
@@ -92,9 +92,9 @@ function LoginForm() {
       </form>
 
       <p className="mt-6 text-center text-sm text-sage">
-        Ainda nao tem conta?{" "}
+        Ainda não tem conta?{" "}
         <Link href="/registrar" className="link-honey">
-          Criar a de voces
+          Criar a de vocês
         </Link>
       </p>
     </div>
@@ -130,7 +130,7 @@ function BrandPanel() {
       </Link>
 
       <div className="relative hidden max-w-md lg:block">
-        <p className="eyebrow text-honey-soft/80">Financas a dois</p>
+        <p className="eyebrow text-honey-soft/80">Finanças a dois</p>
         <p className="mt-4 font-serif text-4xl leading-tight">
           As contas <span className="italic text-honey-soft">da casa</span>, as suas e as dele
           &mdash; no mesmo lugar, em paz.

@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const body = validate(changePasswordSchema, await readJson(req));
 
     if (body.newPassword === SENHA_PADRAO) {
-      throw new ApiError("A nova senha nao pode ser a senha padrao.");
+      throw new ApiError("A nova senha não pode ser a senha padrao.");
     }
 
     await setUserPassword(session.user.id, await bcrypt.hash(body.newPassword, 10));
