@@ -27,7 +27,7 @@ export async function DELETE(req: NextRequest) {
   return handle(async () => {
     const { householdId } = await requireHousehold();
     const id = new URL(req.url).searchParams.get("id");
-    if (!id) throw new ApiError("Informe o id do orcamento a remover.");
+    if (!id) throw new ApiError("Informe o id do orçamento a remover.");
     await deleteBudget(householdId, id);
     return { ok: true };
   });

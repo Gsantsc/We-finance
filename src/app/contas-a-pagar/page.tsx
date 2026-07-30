@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { currency } from "@/lib/formato";
 import { sortBills } from "@/lib/rules";
 
@@ -39,8 +39,8 @@ export default function ContasAPagarPage() {
       setBills(billRes);
       setEntities(entRes);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -61,8 +61,8 @@ export default function ContasAPagarPage() {
       setForm({ entityId: "", name: "", amount: "", dueDay: "", recurring: true });
       setShowForm(false);
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -70,8 +70,8 @@ export default function ContasAPagarPage() {
     try {
       await postJson("/api/contas-a-pagar", { id, pagar });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -79,8 +79,8 @@ export default function ContasAPagarPage() {
     try {
       await fetch(`/api/contas-a-pagar?id=${id}`, { method: "DELETE" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -104,8 +104,8 @@ export default function ContasAPagarPage() {
 
         <p className="text-sm text-sage">
           Cadastre contas fixas (aluguel, assinaturas, financiamentos) com o dia do
-          mes em que vencem. Marque como "Paga" quando quitar; se for recorrente, o
-          controle reinicia sozinho no mes seguinte.
+          mês em que vencem. Marque como "Paga" quando quitar; se for recorrente, o
+          controle reinicia sozinho no mês seguinte.
         </p>
 
         <ErroBanner mensagem={erro} />
@@ -113,7 +113,7 @@ export default function ContasAPagarPage() {
         {bills.length > 0 && (
           <div className="card p-5">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-sage">Total do mes</span>
+              <span className="text-sage">Total do mês</span>
               <span className="font-medium">
                 {currency.format(totalPendente)} pendente de {currency.format(totalMes)}
               </span>
@@ -216,7 +216,7 @@ export default function ContasAPagarPage() {
               </p>
               <p className="text-xs text-sage">
                 Vence dia {b.dueDay}
-                {b.recurring ? " (todo mes)" : ""}
+                {b.recurring ? " (todo mês)" : ""}
                 {!b.pagoEsteMes && b.diasAteVencer !== null && (
                   <>
                     {" "}

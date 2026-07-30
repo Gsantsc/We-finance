@@ -10,13 +10,13 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { ZodSchema } from "zod";
 import { authOptions } from "./auth";
-import { ApiError } from "./errors";
+import { ApiError, corpoDeErro } from "./errors";
 
 export { ApiError };
 
 export async function requireSession() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) throw new ApiError("Nao autenticado", 401);
+  if (!session?.user) throw new ApiError("Não autenticado", 401);
   return session;
 }
 
@@ -28,7 +28,7 @@ export async function requireHousehold() {
     throw new ApiError("Troque a senha temporaria antes de continuar.", 403);
   }
   const householdId = session.user.householdId;
-  if (!householdId) throw new ApiError("Usuario sem casa associada.", 403);
+  if (!householdId) throw new ApiError("Usuário sem casa associada.", 403);
   return { session, householdId };
 }
 
@@ -36,7 +36,7 @@ export async function readJson(req: Request): Promise<unknown> {
   try {
     return await req.json();
   } catch {
-    throw new ApiError("Corpo invalido: era esperado um JSON.");
+    throw new ApiError("Corpo inválido: era esperado um JSON.");
   }
 }
 
@@ -47,20 +47,18 @@ export function validate<T>(schema: ZodSchema<T>, raw: unknown): T {
   const detalhe = parsed.error.issues
     .map((i) => `${i.path.join(".") || "corpo"}: ${i.message}`)
     .join("; ");
-  throw new ApiError(`Dados invalidos - ${detalhe}`);
+  throw new ApiError(`Dados invalidos - ${detalhe}`, 400, "VALIDACAO");
 }
 
+// Ponto unico de saida das rotas: sucesso vira JSON, erro vira { code, message }
+// com o status certo. Nada alem disso chega ao cliente - stack e mensagem crua
+// de erro inesperado ficam so no log do servidor.
 export async function handle(fn: () => Promise<unknown> | unknown) {
   try {
     return NextResponse.json(await fn());
-  } catch (err: any) {
-    const status = err instanceof ApiError ? err.status : 500;
-    // Erro inesperado: detalhe so no log do servidor. A mensagem crua pode
-    // expor interna (nomes de tabela do Postgres, config) para o cliente.
-    if (status === 500) {
-      console.error(err);
-      return NextResponse.json({ error: "Erro interno." }, { status: 500 });
-    }
-    return NextResponse.json({ error: err.message }, { status });
+  } catch (err) {
+    const { body, status } = corpoDeErro(err);
+    if (status >= 500) console.error("[api] erro não tratado:", err);
+    return NextResponse.json(body, { status });
   }
 }

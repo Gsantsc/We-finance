@@ -8,7 +8,13 @@ import {
   addHouseholdMember,
   createEmailVerificationToken,
   getUserByEmail,
+  findHouseholdByInviteCode,
+  countHouseholdMembers,
 } from "@/lib/repo";
+
+// Teto de pessoas por casa. O produto e' para um casal; sem limite, um convite
+// vazado viraria porta aberta para entrar na casa de alguem.
+const MAX_MEMBROS = 2;
 import { sendVerificationEmail } from "@/lib/email";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -37,16 +43,26 @@ export async function POST(req: NextRequest) {
 
     const body = validate(registerSchema, await readJson(req));
 
-    if (!emailPermitido(body.email)) {
-      throw new ApiError("Este email nao esta autorizado a se cadastrar.", 403);
-    }
-    if (body.tipo === "CASAL" && !emailPermitido(body.partnerEmail!)) {
-      throw new ApiError("O email do(a) parceiro(a) nao esta autorizado a se cadastrar.", 403);
+    // Convite e' autorizacao por si so: quem ja esta dentro chamou. Sem esta
+    // excecao, a allowlist de beta fechado mataria o convite de parceiro, que e'
+    // justamente como a segunda pessoa da casa entra.
+    if (body.inviteCode) {
+      // O codigo e' um segredo de 64 bits; o limite existe para nao dar
+      // tentativas baratas de adivinhacao a partir de um mesmo IP.
+      if (!rateLimit(`convite:${ip}`, 10, 60 * 60 * 1000)) {
+        throw new ApiError("Muitas tentativas. Tente daqui a pouco.", 429);
+      }
+    } else if (!emailPermitido(body.email)) {
+      throw new ApiError("Este e-mail não está autorizado a se cadastrar.", 403);
     }
 
-    if (await getUserByEmail(body.email)) throw new ApiError("Email ja cadastrado.", 409);
+    if (body.tipo === "CASAL" && !emailPermitido(body.partnerEmail!)) {
+      throw new ApiError("O e-mail do(a) parceiro(a) não está autorizado a se cadastrar.", 403);
+    }
+
+    if (await getUserByEmail(body.email)) throw new ApiError("E-mail já cadastrado.", 409);
     if (body.tipo === "CASAL" && (await getUserByEmail(body.partnerEmail!))) {
-      throw new ApiError("O email do(a) parceiro(a) ja esta cadastrado.", 409);
+      throw new ApiError("O e-mail do(a) parceiro(a) já está cadastrado.", 409);
     }
 
     const passwordHash = await bcrypt.hash(SENHA_PADRAO, 10);
@@ -57,9 +73,22 @@ export async function POST(req: NextRequest) {
       passwordHash,
     });
 
-    const household = await createHousehold(
-      body.tipo === "CASAL" ? `Casa de ${body.name} e ${body.partnerName}` : `Casa de ${body.name}`
-    );
+    // Com convite valido, entra na casa que ja existe. Sem convite, cria a dela.
+    let household;
+    if (body.inviteCode) {
+      const casa = await findHouseholdByInviteCode(body.inviteCode);
+      if (!casa) {
+        throw new ApiError("Convite inválido ou expirado. Peça um link novo.", 404);
+      }
+      if ((await countHouseholdMembers(casa.id)) >= MAX_MEMBROS) {
+        throw new ApiError(`Esta casa já tem ${MAX_MEMBROS} pessoas.`, 409);
+      }
+      household = casa;
+    } else {
+      household = await createHousehold(
+        body.tipo === "CASAL" ? `Casa de ${body.name} e ${body.partnerName}` : `Casa de ${body.name}`
+      );
+    }
     await addHouseholdMember(household.id, titular.id);
 
     const pessoas = [{ user: titular, name: body.name, email: body.email }];
@@ -81,10 +110,11 @@ export async function POST(req: NextRequest) {
 
     return {
       ok: true,
-      message:
-        body.tipo === "CASAL"
-          ? "Contas criadas. Voces dois receberao um email de confirmacao."
-          : "Conta criada. Voce recebera um email de confirmacao.",
+      message: body.inviteCode
+        ? "Conta criada e vinculada à casa que te convidou. Confirme seu e-mail para entrar."
+        : body.tipo === "CASAL"
+        ? "Contas criadas. Vocês dois receberão um e-mail de confirmação."
+        : "Conta criada. Você receberá um e-mail de confirmação.",
     };
   });
 }

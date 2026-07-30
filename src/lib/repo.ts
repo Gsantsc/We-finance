@@ -15,7 +15,18 @@
 import { randomBytes, createHash } from "node:crypto";
 import { sql, newId, nowIso } from "./db";
 import type postgres from "postgres";
-import { addMonths, billStatus, goalPercent, nextGoalAmount, percentUsado, splitInstallmentCents } from "./rules";
+import type { InstallmentMode } from "./rules";
+import {
+  addMonthKey,
+  addMonths,
+  billStatus,
+  dataDeHojeSP,
+  goalPercent,
+  installmentPlanCents,
+  mesDeHojeSP,
+  nextGoalAmount,
+  percentUsado,
+} from "./rules";
 import { ApiError } from "./errors";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
@@ -25,6 +36,8 @@ export type AccountType =
   | "CARTAO"
   | "INVESTIMENTO"
   | "DINHEIRO"
+  | "VALE_ALIMENTACAO"
+  | "VALE_REFEICAO"
   | "OUTRO";
 
 type Row = Record<string, any>;
@@ -118,6 +131,151 @@ export async function setUserPassword(userId: string, passwordHash: string): Pro
   await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false WHERE id = ${userId}`;
 }
 
+// ---------- LGPD: portabilidade e exclusao ----------
+
+// Tudo que a casa tem, num objeto so, para o usuario baixar. Portabilidade
+// (art. 18, V) pede formato legivel por maquina - JSON resolve.
+//
+// Escopo e' a CASA, nao a pessoa: as duas compartilham o mesmo ledger e separar
+// "meus" lancamentos dos "dela" nao faria sentido num app feito para casal.
+export async function exportarDadosDaCasa(householdId: string): Promise<Row> {
+  const [casa, membros, entidades, contas, transacoes, metas, aportes, contasAPagar, orcamentos, regras, lotes] =
+    await Promise.all([
+      sql`SELECT id, name, created_at FROM households WHERE id = ${householdId}`,
+      sql`SELECT u.id, u.name, u.email, u.created_at, hm.role, hm.joined_at
+          FROM users u JOIN household_members hm ON hm.user_id = u.id
+          WHERE hm.household_id = ${householdId}`,
+      sql`SELECT * FROM entities WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM accounts WHERE household_id = ${householdId}`,
+      sql`SELECT t.* FROM transactions t
+          JOIN accounts a ON a.id = t.account_id
+          WHERE a.household_id = ${householdId} ORDER BY t.date`,
+      sql`SELECT * FROM goals WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM goal_contributions WHERE household_id = ${householdId} ORDER BY date`,
+      sql`SELECT * FROM bills WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM budgets WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM categorization_rules WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM import_batches WHERE household_id = ${householdId}`,
+    ]);
+
+  return {
+    exportadoEm: new Date().toISOString(),
+    formato: "we-finance/v1",
+    // password_hash NUNCA entra: e' segredo de autenticacao, nao dado do titular.
+    casa: casa[0] ?? null,
+    membros,
+    entidades,
+    contas,
+    transacoes,
+    metas,
+    aportesDeMetas: aportes,
+    contasAPagar,
+    orcamentos,
+    regrasDeCategorizacao: regras,
+    lotesDeImportacao: lotes,
+  };
+}
+
+// Apaga a casa inteira e quem so pertence a ela.
+//
+// Nao e' "marcar como inativo": o titular pediu exclusao (art. 18, VI) e o dado
+// sai do banco. A ordem respeita as FKs; users vai por ultimo, e so os membros
+// desta casa - alguem que por algum motivo esteja em outra casa fica de pe.
+export async function excluirCasaEDados(householdId: string): Promise<Row> {
+  return inTransaction(async (tx) => {
+    const membros = await tx`
+      SELECT user_id FROM household_members WHERE household_id = ${householdId}
+    `;
+    const ids = membros.map((m) => m.user_id as string);
+
+    const contagem: Record<string, number> = {};
+    const apagar = async (rotulo: string, q: Promise<any>) => {
+      const r = await q;
+      contagem[rotulo] = r.count ?? 0;
+    };
+
+    await apagar("transacoes", tx`
+      DELETE FROM transactions WHERE account_id IN (
+        SELECT id FROM accounts WHERE household_id = ${householdId}
+      )`);
+    await apagar("aportes", tx`DELETE FROM goal_contributions WHERE household_id = ${householdId}`);
+    await apagar("lotes", tx`DELETE FROM import_batches WHERE household_id = ${householdId}`);
+    await apagar("orcamentos", tx`DELETE FROM budgets WHERE household_id = ${householdId}`);
+    await apagar("contasAPagar", tx`DELETE FROM bills WHERE household_id = ${householdId}`);
+    await apagar("metas", tx`DELETE FROM goals WHERE household_id = ${householdId}`);
+    await apagar("regras", tx`DELETE FROM categorization_rules WHERE household_id = ${householdId}`);
+    await apagar("contas", tx`DELETE FROM accounts WHERE household_id = ${householdId}`);
+    await apagar("entidades", tx`DELETE FROM entities WHERE household_id = ${householdId}`);
+    await apagar("vinculos", tx`DELETE FROM household_members WHERE household_id = ${householdId}`);
+    await apagar("casa", tx`DELETE FROM households WHERE id = ${householdId}`);
+
+    if (ids.length > 0) {
+      // So remove quem nao sobrou em nenhuma outra casa.
+      await tx`DELETE FROM password_reset_tokens WHERE user_id = ANY(${ids})`;
+      await tx`DELETE FROM email_verification_tokens WHERE user_id = ANY(${ids})`;
+      const r = await tx`
+        DELETE FROM users WHERE id = ANY(${ids})
+          AND id NOT IN (SELECT user_id FROM household_members)
+      `;
+      contagem.usuarios = r.count ?? 0;
+    }
+
+    return contagem;
+  });
+}
+
+// ---------- Recuperacao de senha ----------
+
+// Janela curta de proposito: o link chega por email e da acesso total a conta.
+const RESET_VALIDO_MS = 60 * 60 * 1000; // 1 hora
+
+// Cria o token e INVALIDA os anteriores do mesmo usuario. Sem isso, pedir o
+// link tres vezes deixa tres chaves validas circulando em tres emails.
+export async function createPasswordResetToken(
+  userId: string,
+  ip?: string | null
+): Promise<string> {
+  const rawToken = randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const ts = nowIso();
+  await inTransaction(async (tx) => {
+    await tx`UPDATE password_reset_tokens SET used_at = ${ts}
+             WHERE user_id = ${userId} AND used_at IS NULL`;
+    await tx`INSERT INTO password_reset_tokens
+             (id, user_id, token_hash, expires_at, created_at, requested_ip)
+             VALUES (${newId()}, ${userId}, ${tokenHash},
+                     ${new Date(Date.now() + RESET_VALIDO_MS).toISOString()}, ${ts}, ${ip ?? null})`;
+  });
+  return rawToken;
+}
+
+// Troca a senha e queima o token. Devolve null para token inexistente, expirado
+// ou ja usado - a rota nao distingue os casos para nao virar oraculo.
+export async function consumePasswordResetToken(
+  rawToken: string,
+  passwordHash: string
+): Promise<Row | null> {
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  return inTransaction(async (tx) => {
+    const [row] = await tx`
+      SELECT * FROM password_reset_tokens WHERE token_hash = ${tokenHash}
+    `;
+    if (!row || row.used_at) return null;
+    if (new Date(row.expires_at).getTime() < Date.now()) return null;
+
+    const ts = nowIso();
+    await tx`UPDATE password_reset_tokens SET used_at = ${ts} WHERE id = ${row.id}`;
+    // must_change_password sai junto: quem acabou de escolher a senha nao pode
+    // cair na tela de troca obrigatoria logo depois.
+    await tx`UPDATE users
+             SET password_hash = ${passwordHash}, must_change_password = false,
+                 email_verified_at = COALESCE(email_verified_at, ${ts})
+             WHERE id = ${row.user_id}`;
+    const [user] = await tx`SELECT * FROM users WHERE id = ${row.user_id}`;
+    return user ? shapeUser(user) : null;
+  });
+}
+
 // ---------- Verificacao de email ----------
 
 export async function createEmailVerificationToken(userId: string): Promise<string> {
@@ -171,8 +329,29 @@ function shapeHousehold(row: Row): Row {
   return { id: row.id, name: row.name, inviteCode: row.invite_code, createdAt: row.created_at };
 }
 
+// 8 bytes = 64 bits. Os 4 bytes originais davam 32 bits, e quem adivinha um
+// codigo entra numa casa e ve o dinheiro inteiro dela - nao e' um identificador
+// qualquer, e' credencial de acesso.
 function generateInviteCode(): string {
-  return randomBytes(4).toString("hex");
+  return randomBytes(8).toString("hex");
+}
+
+// Troca o codigo da casa. Existe para o caso de o link ter sido compartilhado
+// no grupo errado: o antigo para de valer na hora.
+export async function regenerateInviteCode(householdId: string): Promise<string> {
+  let code = generateInviteCode();
+  while ((await sql`SELECT 1 FROM households WHERE invite_code = ${code}`).length > 0) {
+    code = generateInviteCode();
+  }
+  await sql`UPDATE households SET invite_code = ${code} WHERE id = ${householdId}`;
+  return code;
+}
+
+export async function countHouseholdMembers(householdId: string): Promise<number> {
+  const [r] = await sql`
+    SELECT count(*)::int n FROM household_members WHERE household_id = ${householdId}
+  `;
+  return Number(r.n);
 }
 
 export async function getHouseholdIdForUser(userId: string): Promise<string | null> {
@@ -198,6 +377,26 @@ export async function createHousehold(name: string): Promise<Row> {
   }
   await sql`INSERT INTO households (id, name, invite_code, created_at) VALUES (${id}, ${name}, ${code}, ${nowIso()})`;
   return (await getHousehold(id))!;
+}
+
+// Quem mora na casa. Usado para escolher o dono de uma entidade (entities.owner_id
+// e' o que separa "meu dinheiro" de "nosso dinheiro" no dashboard).
+export async function listHouseholdMembers(householdId: string): Promise<Row[]> {
+  const rows = await sql`
+    SELECT u.id, u.name, hm.role, hm.income_share_bps
+    FROM users u
+    JOIN household_members hm ON hm.user_id = u.id
+    WHERE hm.household_id = ${householdId}
+    ORDER BY hm.joined_at ASC
+  `;
+  // Sem email: o unico consumidor (seletor de dono em /entidades) usa id e nome,
+  // e endpoint de listagem nao precisa devolver dado pessoal que ninguem le.
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    incomeShareBps: r.income_share_bps,
+  }));
 }
 
 export async function addHouseholdMember(householdId: string, userId: string): Promise<void> {
@@ -236,7 +435,7 @@ export async function findEntityByName(householdId: string, name: string): Promi
 
 async function assertUserInHousehold(householdId: string, userId: string): Promise<void> {
   const [row] = await sql`SELECT 1 FROM household_members WHERE household_id = ${householdId} AND user_id = ${userId}`;
-  if (!row) throw new ApiError("Usuario nao encontrado nesta casa", 404);
+  if (!row) throw new ApiError("Usuário não encontrado nesta casa", 404);
 }
 
 export async function createEntity(householdId: string, e: {
@@ -255,7 +454,7 @@ export async function createEntity(householdId: string, e: {
 
 export async function updateEntity(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM entities WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Entidade nao encontrada", 404);
+  if (!cur) throw new ApiError("Entidade não encontrada", 404);
   if (patch.ownerId) await assertUserInHousehold(householdId, patch.ownerId);
   const next = {
     name: patch.name ?? cur.name,
@@ -299,7 +498,7 @@ async function shapeAccount(row: Row, knownEntity?: Row | null): Promise<Row> {
 
 async function assertEntityInHousehold(householdId: string, entityId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM entities WHERE id = ${entityId} AND household_id = ${householdId}`;
-  if (!row) throw new ApiError("Entidade nao encontrada", 404);
+  if (!row) throw new ApiError("Entidade não encontrada", 404);
 }
 
 export async function listAccounts(householdId: string): Promise<Row[]> {
@@ -325,7 +524,7 @@ export async function createAccount(householdId: string, a: {
 
 export async function updateAccount(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM accounts WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Conta nao encontrada", 404);
+  if (!cur) throw new ApiError("Conta não encontrada", 404);
   if (patch.entityId) await assertEntityInHousehold(householdId, patch.entityId);
   const next = {
     name: patch.name ?? cur.name,
@@ -379,8 +578,14 @@ export async function findCategoryByName(name: string): Promise<Row | undefined>
   return row ? shapeCategory(row) : undefined;
 }
 
+// Casa SEM ACENTO de proposito. Com comparacao exata, "Salario" e "Salário"
+// viram duas categorias: o seed recriaria as versoes sem acento que a migracao
+// 0007 acabou de corrigir, e o sync da Pluggy (que passa o nome vindo da API
+// deles) multiplicaria variante a cada grafia diferente.
 export async function upsertCategoryByName(name: string, icon = "💸", isIncome = false): Promise<Row> {
-  const [existing] = await sql`SELECT * FROM categories WHERE name = ${name}`;
+  const [existing] = await sql`
+    SELECT * FROM categories WHERE public.sem_acento(name) = public.sem_acento(${name})
+  `;
   if (existing) return shapeCategory(existing);
   const id = newId();
   await sql`INSERT INTO categories (id, name, icon, is_income) VALUES (${id}, ${name}, ${icon}, ${isIncome})`;
@@ -469,10 +674,14 @@ export async function listTransactions(householdId: string, filters: {
   entityId?: string | null;
   accountId?: string | null;
   categoryId?: string | null;
+  month?: string | null;
   limit?: number;
+  offset?: number;
 }): Promise<Row[]> {
   const pedido = Number(filters.limit);
   const limit = Number.isFinite(pedido) ? Math.min(Math.max(Math.trunc(pedido), 1), 2000) : 300;
+  const pulo = Number(filters.offset);
+  const offset = Number.isFinite(pulo) && pulo > 0 ? Math.trunc(pulo) : 0;
 
   const rows = await sql`
     SELECT t.*,
@@ -493,6 +702,7 @@ export async function listTransactions(householdId: string, filters: {
       ${filters.accountId ? sql`AND t.account_id = ${filters.accountId}` : sql``}
       ${filters.categoryId ? sql`AND t.category_id = ${filters.categoryId}` : sql``}
       ${filters.entityId ? sql`AND a.entity_id = ${filters.entityId}` : sql``}
+      ${filters.month ? sql`AND substr(t.date, 1, 7) = ${filters.month}` : sql``}
     -- Ordena pelos mais recentes, mas mantem as parcelas de uma mesma compra
     -- JUNTAS (na data da 1a parcela) e em ordem CRESCENTE (1/N, 2/N, ...).
     ORDER BY
@@ -501,15 +711,19 @@ export async function listTransactions(householdId: string, filters: {
         t.date
       ) DESC,
       t.installment_group_id NULLS FIRST,
-      t.installment_number ASC NULLS FIRST
-    LIMIT ${limit}
+      t.installment_number ASC NULLS FIRST,
+      -- Desempate final e' obrigatorio com LIMIT/OFFSET: sem ele, linhas
+      -- empatadas nos criterios acima podem sair em ordem diferente entre a
+      -- pagina 1 e a 2, duplicando uma e sumindo com outra.
+      t.id ASC
+    LIMIT ${limit} OFFSET ${offset}
   `;
   return rows.map(shapeJoinedTransaction);
 }
 
 async function assertAccountInHousehold(householdId: string, accountId: string): Promise<void> {
   const [row] = await sql`SELECT id FROM accounts WHERE id = ${accountId} AND household_id = ${householdId}`;
-  if (!row) throw new ApiError("Conta nao encontrada", 404);
+  if (!row) throw new ApiError("Conta não encontrada", 404);
 }
 
 // Em conta manual o saldo muda a cada lancamento; delta em CENTAVOS (com sinal).
@@ -517,7 +731,7 @@ async function assertAccountInHousehold(householdId: string, accountId: string):
 async function applyBalanceDelta(tx: postgres.TransactionSql, accountId: string, deltaCents: number) {
   if (!deltaCents) return;
   const [account] = await tx`SELECT is_manual FROM accounts WHERE id = ${accountId}`;
-  if (!account) throw new ApiError("Conta nao encontrada", 404);
+  if (!account) throw new ApiError("Conta não encontrada", 404);
   if (!account.is_manual) return;
   await tx`UPDATE accounts SET balance = balance + ${deltaCents}, updated_at = ${nowIso()} WHERE id = ${accountId}`;
 }
@@ -557,22 +771,24 @@ export async function createTransaction(householdId: string, t: {
   return shapeTransaction(row);
 }
 
-// Compra parcelada: uma linha por mes (mesma installment_group_id), o total
-// dividido em centavos com o resto na ultima. Parcelas sao competencias
-// futuras, entao NAO mexem no saldo atual da conta.
+// Compra/divida parcelada: uma linha por mes (mesma installment_group_id).
+// Como o "amount" vira parcela depende do mode (ver InstallmentMode):
+//   "split" = amount e' o TOTAL da compra; "fixed" = amount e' cada parcela.
+// Parcelas sao competencias futuras, entao NAO mexem no saldo atual da conta.
 export async function createInstallmentPurchase(householdId: string, t: {
   accountId: string;
   description: string;
-  totalAmount: number; // reais, positivo
+  amount: number; // reais: total da compra (split) ou valor da parcela (fixed)
   installments: number;
+  mode: InstallmentMode;
   date: string;
   categoryId?: string | null;
   createdById?: string | null;
-}): Promise<{ groupId: string; count: number }> {
+}): Promise<{ groupId: string; count: number; installmentCents: number[]; totalCents: number }> {
   await assertAccountInHousehold(householdId, t.accountId);
   const n = Math.max(2, Math.min(360, Math.trunc(t.installments)));
   const groupId = newId();
-  const parts = splitInstallmentCents(toCents(Math.abs(t.totalAmount)), n);
+  const parts = installmentPlanCents(toCents(Math.abs(t.amount)), n, t.mode);
   const baseDate = toDateOnly(t.date);
   const categoryId = t.categoryId ?? (await ruleCategoryFor(householdId, t.description));
   await inTransaction(async (tx) => {
@@ -582,7 +798,12 @@ export async function createInstallmentPurchase(householdId: string, t: {
         VALUES (${newId()}, ${t.accountId}, ${categoryId}, ${t.description}, 'expense', ${parts[i]}, ${addMonths(baseDate, i)}, 'manual', ${groupId}, ${i + 1}, ${n}, true, ${t.createdById ?? null}, ${nowIso()})`;
     }
   });
-  return { groupId, count: n };
+  return {
+    groupId,
+    count: n,
+    installmentCents: parts,
+    totalCents: parts.reduce((s, x) => s + x, 0),
+  };
 }
 
 export async function updateTransaction(householdId: string, id: string, patch: Row): Promise<Row> {
@@ -590,11 +811,13 @@ export async function updateTransaction(householdId: string, id: string, patch: 
     SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
     WHERE t.id = ${id} AND a.household_id = ${householdId}
   `;
-  if (!cur) throw new ApiError("Transacao nao encontrada", 404);
+  if (!cur) throw new ApiError("Transação não encontrada", 404);
+  if (patch.accountId) await assertAccountInHousehold(householdId, patch.accountId);
 
   const oldSignedCents = cur.type === "expense" ? -Number(cur.amount_cents) : Number(cur.amount_cents);
   const newSignedCents = patch.amount === undefined ? oldSignedCents : toCents(patch.amount);
   const next = {
+    accountId: patch.accountId ?? cur.account_id,
     description: patch.description ?? cur.description,
     type: newSignedCents < 0 ? "expense" : "income",
     amountCents: Math.abs(newSignedCents),
@@ -603,8 +826,15 @@ export async function updateTransaction(householdId: string, id: string, patch: 
     notes: patch.notes === undefined ? cur.notes : patch.notes,
   };
   await inTransaction(async (tx) => {
-    await tx`UPDATE transactions SET description = ${next.description}, type = ${next.type}, amount_cents = ${next.amountCents}, date = ${next.date}, category_id = ${next.categoryId}, notes = ${next.notes} WHERE id = ${id}`;
-    await applyBalanceDelta(tx, cur.account_id, newSignedCents - oldSignedCents);
+    await tx`UPDATE transactions SET account_id = ${next.accountId}, description = ${next.description}, type = ${next.type}, amount_cents = ${next.amountCents}, date = ${next.date}, category_id = ${next.categoryId}, notes = ${next.notes} WHERE id = ${id}`;
+    if (!cur.installment_group_id) {
+      if (next.accountId === cur.account_id) {
+        await applyBalanceDelta(tx, cur.account_id, newSignedCents - oldSignedCents);
+      } else {
+        await applyBalanceDelta(tx, cur.account_id, -oldSignedCents);
+        await applyBalanceDelta(tx, next.accountId, newSignedCents);
+      }
+    }
   });
   const [row] = await sql`SELECT * FROM transactions WHERE id = ${id}`;
   return shapeTransaction(row);
@@ -655,7 +885,7 @@ export async function createRule(householdId: string, r: {
   priority?: number;
 }): Promise<Row> {
   const [cat] = await sql`SELECT id FROM categories WHERE id = ${r.categoryId}`;
-  if (!cat) throw new ApiError("Categoria nao encontrada", 404);
+  if (!cat) throw new ApiError("Categoria não encontrada", 404);
   const id = newId();
   await sql`INSERT INTO categorization_rules (id, household_id, match_type, pattern, category_id, priority, active, created_at)
     VALUES (${id}, ${householdId}, ${r.matchType}, ${r.pattern}, ${r.categoryId}, ${r.priority ?? 0}, true, ${nowIso()})`;
@@ -766,48 +996,69 @@ async function entidadeResumo(entityId: string | null): Promise<Row | null> {
   return row || null;
 }
 
-// Quanto ja foi gasto (despesas) numa entidade+categoria num mes, em CENTAVOS.
-async function gastoCentsDoMes(entityId: string, categoryId: string, chave: string): Promise<number> {
-  const [r] = await sql`
-    SELECT COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents ELSE 0 END), 0) AS gasto
-    FROM transactions t
-    JOIN accounts a ON a.id = t.account_id
-    WHERE a.entity_id = ${entityId} AND t.category_id = ${categoryId} AND substr(t.date, 1, 7) = ${chave}
+// Todas as entidades da casa de uma vez.
+//
+// As listagens montavam o resumo da entidade linha a linha (um SELECT por meta,
+// por conta a pagar, por orcamento). Alem de lento, isso dispara N queries
+// CONCORRENTES no mesmo pool via Promise.all - e sob concorrencia o driver
+// chegou a estourar o buffer ("offset out of range"), derrubando a rota com 500.
+// Uma query so, resolvida em memoria, elimina os dois problemas.
+async function mapaEntidades(householdId: string): Promise<Map<string, Row>> {
+  const rows = await sql`
+    SELECT id, name, type, color FROM entities WHERE household_id = ${householdId}
   `;
-  return Number(r.gasto);
+  return new Map(rows.map((r) => [r.id as string, r as Row]));
+}
+
+function daMapa(mapa: Map<string, Row>, entityId: string | null): Row | null {
+  return entityId ? (mapa.get(entityId) ?? null) : null;
 }
 
 // ---------- Budgets (orcamento por categoria) ----------
 
 export async function listBudgets(householdId: string, month: number, year: number): Promise<Row[]> {
   const chave = chaveMes(month, year);
-  const rows = await sql`
-    SELECT b.*, c.name AS c_name, c.icon AS c_icon
-    FROM budgets b
-    JOIN categories c ON c.id = b.category_id
-    WHERE b.household_id = ${householdId} AND b.month = ${month} AND b.year = ${year}
-    ORDER BY c.name ASC
-  `;
+  // O gasto de cada orcamento sai de uma agregacao unica por entidade+categoria,
+  // em vez de uma query por linha (eram 2 por orcamento, todas concorrentes).
+  const [rows, mapa, gastos] = await Promise.all([
+    sql`
+      SELECT b.*, c.name AS c_name, c.icon AS c_icon
+      FROM budgets b
+      JOIN categories c ON c.id = b.category_id
+      WHERE b.household_id = ${householdId} AND b.month = ${month} AND b.year = ${year}
+      ORDER BY c.name ASC
+    `,
+    mapaEntidades(householdId),
+    sql`
+      SELECT a.entity_id, t.category_id, SUM(t.amount_cents)::bigint AS gasto
+      FROM transactions t
+      JOIN accounts a ON a.id = t.account_id
+      WHERE a.household_id = ${householdId}
+        AND t.type = 'expense'
+        AND substr(t.date, 1, 7) = ${chave}
+      GROUP BY a.entity_id, t.category_id
+    `,
+  ]);
 
-  return Promise.all(
-    rows.map(async (b) => {
-      const amount = toReais(b.amount);
-      const gasto = toReais(await gastoCentsDoMes(b.entity_id, b.category_id, chave));
-      return {
-        id: b.id,
-        entityId: b.entity_id,
-        categoryId: b.category_id,
-        month: b.month,
-        year: b.year,
-        amount,
-        gasto,
-        restante: amount - gasto,
-        percentUsado: percentUsado(gasto, amount),
-        entity: await entidadeResumo(b.entity_id),
-        category: { id: b.category_id, name: b.c_name, icon: b.c_icon },
-      };
-    })
-  );
+  const gastoPor = new Map(gastos.map((g) => [`${g.entity_id}|${g.category_id}`, Number(g.gasto)]));
+
+  return rows.map((b) => {
+    const amount = toReais(b.amount);
+    const gasto = toReais(gastoPor.get(`${b.entity_id}|${b.category_id}`) ?? 0);
+    return {
+      id: b.id,
+      entityId: b.entity_id,
+      categoryId: b.category_id,
+      month: b.month,
+      year: b.year,
+      amount,
+      gasto,
+      restante: amount - gasto,
+      percentUsado: percentUsado(gasto, amount),
+      entity: daMapa(mapa, b.entity_id),
+      category: { id: b.category_id, name: b.c_name, icon: b.c_icon },
+    };
+  });
 }
 
 export async function upsertBudget(householdId: string, b: {
@@ -839,28 +1090,57 @@ export async function deleteBudget(householdId: string, id: string): Promise<voi
   await sql`DELETE FROM budgets WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
+// Limpa dados financeiros de uma casa preservando usuarios, entidades e
+// categorias globais. Usado para zerar o app sem quebrar o cadastro do casal.
+export async function clearHouseholdFinancialRecords(householdId: string): Promise<Row> {
+  const counts: Row = {};
+  await inTransaction(async (tx) => {
+    counts.transactions = (await tx`
+      DELETE FROM transactions
+      WHERE account_id IN (SELECT id FROM accounts WHERE household_id = ${householdId})
+      RETURNING id
+    `).length;
+    counts.importBatches = (await tx`
+      DELETE FROM import_batches WHERE household_id = ${householdId} RETURNING id
+    `).length;
+    counts.bills = (await tx`DELETE FROM bills WHERE household_id = ${householdId} RETURNING id`).length;
+    counts.goals = (await tx`DELETE FROM goals WHERE household_id = ${householdId} RETURNING id`).length;
+    counts.budgets = (await tx`DELETE FROM budgets WHERE household_id = ${householdId} RETURNING id`).length;
+    counts.rules = (await tx`
+      DELETE FROM categorization_rules WHERE household_id = ${householdId} RETURNING id
+    `).length;
+    counts.accounts = (await tx`DELETE FROM accounts WHERE household_id = ${householdId} RETURNING id`).length;
+  });
+  return counts;
+}
+
 // ---------- Goals (metas de economia) ----------
 
-async function shapeGoal(row: Row): Promise<Row> {
+async function shapeGoal(row: Row, mapa?: Map<string, Row>): Promise<Row> {
   const alvoCents = Number(row.target_amount);
   const atualCents = Number(row.current_amount);
+  const mensalCents = Number(row.monthly_amount ?? 0);
   return {
     id: row.id,
     entityId: row.entity_id,
     name: row.name,
     targetAmount: toReais(alvoCents),
     currentAmount: toReais(atualCents),
+    monthlyAmount: toReais(mensalCents),
     targetDate: row.target_date,
     percent: goalPercent(atualCents, alvoCents),
     restante: toReais(Math.max(0, alvoCents - atualCents)),
     concluida: atualCents >= alvoCents,
-    entity: await entidadeResumo(row.entity_id),
+    entity: mapa ? daMapa(mapa, row.entity_id) : await entidadeResumo(row.entity_id),
   };
 }
 
 export async function listGoals(householdId: string): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM goals WHERE household_id = ${householdId} ORDER BY created_at ASC`;
-  return Promise.all(rows.map(shapeGoal));
+  const [rows, mapa] = await Promise.all([
+    sql`SELECT * FROM goals WHERE household_id = ${householdId} ORDER BY created_at ASC`,
+    mapaEntidades(householdId),
+  ]);
+  return Promise.all(rows.map((r) => shapeGoal(r, mapa)));
 }
 
 export async function createGoal(householdId: string, g: {
@@ -868,19 +1148,30 @@ export async function createGoal(householdId: string, g: {
   name: string;
   targetAmount: number;
   currentAmount?: number;
+  monthlyAmount?: number;
   targetDate?: string | null;
 }): Promise<Row> {
   await assertEntityInHousehold(householdId, g.entityId);
   const id = newId();
-  await sql`INSERT INTO goals (id, household_id, entity_id, name, target_amount, current_amount, target_date, created_at)
-    VALUES (${id}, ${householdId}, ${g.entityId}, ${g.name}, ${toCents(g.targetAmount)}, ${toCents(g.currentAmount ?? 0)}, ${g.targetDate ?? null}, ${nowIso()})`;
+  const inicial = toCents(g.currentAmount ?? 0);
+  await inTransaction(async (tx) => {
+    await tx`INSERT INTO goals (id, household_id, entity_id, name, target_amount, current_amount, monthly_amount, target_date, created_at)
+      VALUES (${id}, ${householdId}, ${g.entityId}, ${g.name}, ${toCents(g.targetAmount)}, ${inicial}, ${toCents(g.monthlyAmount ?? 0)}, ${g.targetDate ?? null}, ${nowIso()})`;
+    // O "ja guardado" do formulario precisa virar APORTE, senao a meta nasce
+    // com current_amount preenchido e ZERO em v_goal_progress - que e' de onde
+    // as telas leem o progresso. O usuario digitava 5.000 e via R$ 0,00 / 0%.
+    if (inicial !== 0) {
+      await tx`INSERT INTO goal_contributions (id, goal_id, household_id, amount_cents, date, note)
+        VALUES (${newId()}, ${id}, ${householdId}, ${inicial}, ${dataDeHojeSP()}, 'Saldo informado na criação da meta')`;
+    }
+  });
   const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
   return shapeGoal(row);
 }
 
 export async function updateGoal(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Meta nao encontrada", 404);
+  if (!cur) throw new ApiError("Meta não encontrada", 404);
   // deposito/currentAmount chegam em reais; tudo em centavos internamente.
   const patchCents = {
     deposito: patch.deposito === undefined ? undefined : toCents(patch.deposito),
@@ -890,9 +1181,10 @@ export async function updateGoal(householdId: string, id: string, patch: Row): P
     name: patch.name ?? cur.name,
     targetAmount: patch.targetAmount === undefined ? Number(cur.target_amount) : toCents(patch.targetAmount),
     currentAmount: nextGoalAmount(Number(cur.current_amount), patchCents),
+    monthlyAmount: patch.monthlyAmount === undefined ? Number(cur.monthly_amount ?? 0) : toCents(patch.monthlyAmount),
     targetDate: patch.targetDate === undefined ? cur.target_date : patch.targetDate,
   };
-  await sql`UPDATE goals SET name = ${next.name}, target_amount = ${next.targetAmount}, current_amount = ${next.currentAmount}, target_date = ${next.targetDate} WHERE id = ${id}`;
+  await sql`UPDATE goals SET name = ${next.name}, target_amount = ${next.targetAmount}, current_amount = ${next.currentAmount}, monthly_amount = ${next.monthlyAmount}, target_date = ${next.targetDate} WHERE id = ${id}`;
   const [row] = await sql`SELECT * FROM goals WHERE id = ${id}`;
   return shapeGoal(row);
 }
@@ -901,9 +1193,325 @@ export async function deleteGoal(householdId: string, id: string): Promise<void>
   await sql`DELETE FROM goals WHERE id = ${id} AND household_id = ${householdId}`;
 }
 
+// ---------- Aportes de meta (goal_contributions) ----------
+
+// Progresso vem da view: total aportado, aporte do mes corrente e o que falta.
+// Somar isso no cliente daria numero diferente por tela.
+export async function listGoalProgress(householdId: string): Promise<Row[]> {
+  const rows = await sql`
+    SELECT * FROM v_goal_progress WHERE household_id = ${householdId} ORDER BY name ASC
+  `;
+  return rows.map((r) => ({
+    goalId: r.goal_id,
+    entityId: r.entity_id,
+    ownerId: r.owner_id,
+    name: r.name,
+    targetAmount: toReais(Number(r.target_cents)),
+    plannedMonthly: toReais(Number(r.planned_monthly_cents)),
+    contributedTotal: toReais(Number(r.contributed_total_cents)),
+    contributedThisMonth: toReais(Number(r.contributed_this_month_cents)),
+    restante: toReais(Number(r.remaining_cents)),
+    percent: goalPercent(Number(r.contributed_total_cents), Number(r.target_cents)),
+    concluida: Number(r.contributed_total_cents) >= Number(r.target_cents),
+    targetDate: r.target_date,
+    lastContributionDate: r.last_contribution_date,
+  }));
+}
+
+export async function listGoalContributions(householdId: string, goalId: string): Promise<Row[]> {
+  const rows = await sql`
+    SELECT * FROM goal_contributions
+    WHERE household_id = ${householdId} AND goal_id = ${goalId}
+    ORDER BY date DESC, created_at DESC
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    goalId: r.goal_id,
+    amount: toReais(Number(r.amount_cents)),
+    date: r.date,
+    note: r.note,
+    transactionId: r.transaction_id,
+  }));
+}
+
+// goals.current_amount e' ESPELHO da soma dos aportes, nunca um contador
+// proprio. Incrementar com GREATEST(0, atual + delta) parecia inofensivo, mas
+// dessincroniza: uma retirada maior que o saldo era clampada em 0 enquanto
+// v_goal_progress (que soma a tabela) ficava negativa, e apagar o aporte depois
+// devolvia o valor clampado. Recalcular da fonte mantem a invariante
+// current_amount == SUM(goal_contributions) em qualquer ordem de operacao.
+async function ressincronizarMeta(tx: postgres.TransactionSql, goalId: string) {
+  await tx`
+    UPDATE goals SET current_amount = COALESCE((
+      SELECT SUM(amount_cents) FROM goal_contributions WHERE goal_id = ${goalId}
+    ), 0)
+    WHERE id = ${goalId}
+  `;
+}
+
+export async function createGoalContribution(householdId: string, c: {
+  goalId: string;
+  amount: number; // reais; negativo = retirada/correcao
+  date: string;
+  note?: string | null;
+  createdById?: string | null;
+}): Promise<Row> {
+  const [goal] = await sql`
+    SELECT id FROM goals WHERE id = ${c.goalId} AND household_id = ${householdId}
+  `;
+  if (!goal) throw new ApiError("Meta não encontrada", 404);
+
+  const cents = toCents(c.amount);
+  if (cents === 0) throw new ApiError("Informe um valor diferente de zero.");
+
+  const id = newId();
+  await inTransaction(async (tx) => {
+    await tx`INSERT INTO goal_contributions
+      (id, goal_id, household_id, amount_cents, date, note, created_by_id)
+      VALUES (${id}, ${c.goalId}, ${householdId}, ${cents}, ${toDateOnly(c.date)}, ${c.note ?? null}, ${c.createdById ?? null})`;
+    await ressincronizarMeta(tx, c.goalId);
+  });
+
+  const [row] = await sql`SELECT * FROM goal_contributions WHERE id = ${id}`;
+  return {
+    id: row.id,
+    goalId: row.goal_id,
+    amount: toReais(Number(row.amount_cents)),
+    date: row.date,
+    note: row.note,
+  };
+}
+
+// ---------- Dashboard mes a mes ----------
+//
+// Tudo aqui sai das VIEWS agregadas. O dashboard antigo puxava ate 2000
+// transacoes e somava no cliente: lento e sujeito a divergir de tela para tela.
+
+// Meses que tem lancamento, do mais recente para o mais antigo. Alimenta o
+// seletor de mes - inclui meses futuros (parcelas ja lancadas).
+export async function availableMonths(householdId: string): Promise<string[]> {
+  const rows = await sql`
+    SELECT DISTINCT month FROM v_transaction_scope
+    WHERE household_id = ${householdId}
+    ORDER BY month DESC
+  `;
+  return rows.map((r) => r.month as string);
+}
+
+// Os 12 meses que terminam no mes selecionado - serie do grafico de evolucao.
+//
+// A view so tem linha para mes COM lancamento. Como o grafico posiciona os
+// pontos por indice, devolver so os meses existentes comprimia a linha do tempo:
+// um mes parado entre dois movimentados simplesmente sumia e os vizinhos ficavam
+// colados, como se fossem consecutivos. A serie e' preenchida com zero para o
+// eixo x ser mesmo o tempo.
+export async function monthlyEvolution(householdId: string, month: string, meses = 12): Promise<Row[]> {
+  const janela = Math.min(Math.max(meses, 2), 36);
+  const rows = await sql`
+    SELECT month, income_cents, expense_cents, net_cents
+    FROM v_household_monthly_summary
+    WHERE household_id = ${householdId} AND month <= ${month}
+    ORDER BY month DESC
+    LIMIT ${janela}
+  `;
+  if (rows.length === 0) return [];
+
+  const porMes = new Map(rows.map((r) => [r.month as string, r]));
+  const primeiro = rows[rows.length - 1].month as string;
+
+  // Do mes mais antigo que tem dado ate o selecionado, sem buraco.
+  const serie: Row[] = [];
+  for (let m = primeiro; m <= month; m = addMonthKey(m, 1)) {
+    const r = porMes.get(m);
+    serie.push({
+      month: m,
+      receitas: toReais(Number(r?.income_cents ?? 0)),
+      despesas: toReais(Number(r?.expense_cents ?? 0)),
+      liquido: toReais(Number(r?.net_cents ?? 0)),
+    });
+  }
+  return serie;
+}
+
+// Payload unico do dashboard de um mes. Uma chamada, tudo ja agregado no banco.
+export async function dashboardMonth(householdId: string, month: string): Promise<Row> {
+  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, meses, ultimos] =
+    await Promise.all([
+      sql`
+        SELECT o.*, u.name AS owner_name
+        FROM v_monthly_overview o
+        LEFT JOIN users u ON u.id = o.owner_id
+        WHERE o.household_id = ${householdId} AND o.month = ${month}
+      `,
+      sql`
+        SELECT category_id, category_name, category_icon, owner_id, type, total_cents
+        FROM v_monthly_category_totals
+        WHERE household_id = ${householdId} AND month = ${month} AND type = 'expense'
+        ORDER BY total_cents DESC
+        LIMIT 12
+      `,
+      sql`
+        SELECT p.*, coalesce(m.contributed_cents, 0) AS month_cents
+        FROM v_goal_progress p
+        LEFT JOIN v_goal_monthly_contributions m
+          ON m.goal_id = p.goal_id AND m.month = ${month}
+        WHERE p.household_id = ${householdId}
+        ORDER BY p.name ASC
+      `,
+      sql`
+        SELECT b.id, b.name, b.amount, b.due_day, b.last_paid_at, b.recurring, e.owner_id
+        FROM bills b
+        LEFT JOIN entities e ON e.id = b.entity_id
+        WHERE b.household_id = ${householdId}
+        ORDER BY b.due_day ASC
+      `,
+      sql`
+        SELECT e.owner_id, sum(c.amount_cents)::bigint AS cents
+        FROM goal_contributions c
+        JOIN goals g ON g.id = c.goal_id
+        LEFT JOIN entities e ON e.id = g.entity_id
+        WHERE c.household_id = ${householdId} AND substr(c.date, 1, 7) = ${month}
+        GROUP BY e.owner_id
+      `,
+      sql`
+        SELECT type, sum(balance)::bigint AS cents, count(*)::int AS n,
+               count(*) FILTER (WHERE entity_id IS NULL)::int AS sem_entidade
+        FROM accounts
+        WHERE household_id = ${householdId} AND archived = false
+        GROUP BY type
+      `,
+      monthlyEvolution(householdId, month),
+      availableMonths(householdId),
+      // Do MES selecionado - a lista fica embaixo do seletor, ignorar o filtro
+      // ali seria mostrar lancamento de outro mes sob o rotulo deste.
+      listTransactions(householdId, { month, limit: 8 }),
+    ]);
+
+  const aportePorDono = new Map<string | null, number>(
+    aporteRows.map((r) => [r.owner_id ?? null, Number(r.cents)])
+  );
+
+  // bills e' INTENCAO recorrente, nao lancamento: a tabela so guarda o ULTIMO
+  // pagamento, entao nao da para saber se a conta de um mes passado foi paga.
+  //
+  // Em mes PASSADO elas nao entram na conta: o que de fato aconteceu ja esta no
+  // ledger (em despesas). Somar a bill de novo subtraia o mesmo dinheiro duas
+  // vezes da Sobra. Em mes corrente/futuro elas entram como previsto - que e' o
+  // ponto de existir uma conta a pagar.
+  const mesHoje = mesDeHojeSP();
+  const mesCorrente = mesHoje === month;
+  const mesPassado = month < mesHoje;
+
+  const bills = billRows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    amount: toReais(Number(b.amount)),
+    dueDay: b.due_day,
+    ownerId: b.owner_id,
+    pago: mesCorrente ? String(b.last_paid_at ?? "").slice(0, 7) === month : false,
+  }));
+
+  function billsDe(ownerId: string | null, todos: boolean) {
+    if (mesPassado) return 0;
+    return bills
+      .filter((b) => (todos ? true : b.ownerId === ownerId))
+      .reduce((s, b) => s + (b.pago ? 0 : b.amount), 0);
+  }
+
+  const colunas = overviewRows.map((r) => {
+    const total = r.is_household_total === true;
+    const ownerId = total ? null : r.owner_id;
+    const contasFixas = billsDe(ownerId, total);
+    const aportes = total
+      ? Array.from(aportePorDono.values()).reduce((s, v) => s + v, 0)
+      : (aportePorDono.get(ownerId) ?? 0);
+    const receitas = toReais(Number(r.income_cents));
+    const despesas = toReais(Number(r.expense_cents));
+    const aportesReais = toReais(aportes);
+    return {
+      key: total ? "casal" : (ownerId ?? "compartilhado"),
+      nome: total ? "Casal" : (r.owner_name ?? "Compartilhado"),
+      isTotal: total,
+      salario: toReais(Number(r.salary_cents)),
+      va: toReais(Number(r.va_cents)),
+      vr: toReais(Number(r.vr_cents)),
+      parcelas: toReais(Number(r.installments_cents)),
+      contasFixas,
+      dividas: toReais(Number(r.installments_cents)) + contasFixas,
+      investido: toReais(Number(r.invested_cents)),
+      aportes: aportesReais,
+      receitas,
+      despesas,
+      // Sobra = renda - o que sai - contas fixas ainda em aberto - aportes.
+      sobra: receitas - despesas - contasFixas - aportesReais,
+    };
+  });
+
+  // "Compartilhado" (entidades sem dono) so faz sentido AO LADO de pelo menos
+  // uma pessoa. Sem nenhum dono definido, ele fica identico ao total e a tela
+  // mostra duas colunas com os mesmos numeros, sugerindo uma divisao que nao
+  // existe. Nesse caso o total do casal ja conta a historia inteira.
+  const temPessoa = colunas.some((c) => !c.isTotal && c.key !== "compartilhado");
+  const visiveis = temPessoa ? colunas : colunas.filter((c) => c.isTotal);
+
+  // Casal primeiro, depois as pessoas por nome, e o "Compartilhado" por ultimo.
+  visiveis.sort((a, b) => {
+    if (a.isTotal !== b.isTotal) return a.isTotal ? -1 : 1;
+    if (a.key === "compartilhado") return 1;
+    if (b.key === "compartilhado") return -1;
+    return a.nome.localeCompare(b.nome, "pt-BR");
+  });
+
+  return {
+    month,
+    mesesDisponiveis: meses,
+    colunas: visiveis,
+    evolucao,
+    categorias: categorias.map((c) => ({
+      id: c.category_id,
+      nome: c.category_name ?? "Sem categoria",
+      icone: c.category_icon,
+      total: toReais(Number(c.total_cents)),
+    })),
+    metas: metasRows.map((m) => ({
+      id: m.goal_id,
+      nome: m.name,
+      alvo: toReais(Number(m.target_cents)),
+      guardado: toReais(Number(m.contributed_total_cents)),
+      restante: toReais(Number(m.remaining_cents)),
+      aporteDoMes: toReais(Number(m.month_cents)),
+      planejadoMes: toReais(Number(m.planned_monthly_cents)),
+      percent: goalPercent(Number(m.contributed_total_cents), Number(m.target_cents)),
+      targetDate: m.target_date,
+    })),
+    contas: {
+      patrimonio: toReais(contas.reduce((s, c) => s + Number(c.cents), 0)),
+      investimentos: toReais(
+        contas.filter((c) => c.type === "INVESTIMENTO").reduce((s, c) => s + Number(c.cents), 0)
+      ),
+      total: contas.reduce((s, c) => s + c.n, 0),
+      semEntidade: contas.reduce((s, c) => s + c.sem_entidade, 0),
+    },
+    bills: mesPassado ? [] : bills.filter((b) => !b.pago),
+    ultimosLancamentos: ultimos,
+  };
+}
+
+export async function deleteGoalContribution(householdId: string, id: string): Promise<void> {
+  const [row] = await sql`
+    SELECT goal_id, amount_cents FROM goal_contributions
+    WHERE id = ${id} AND household_id = ${householdId}
+  `;
+  if (!row) throw new ApiError("Aporte não encontrado", 404);
+  await inTransaction(async (tx) => {
+    await tx`DELETE FROM goal_contributions WHERE id = ${id}`;
+    await ressincronizarMeta(tx, row.goal_id);
+  });
+}
+
 // ---------- Bills (contas a pagar / lembretes) ----------
 
-async function shapeBill(row: Row, hoje = new Date()): Promise<Row> {
+async function shapeBill(row: Row, hoje = new Date(), mapa?: Map<string, Row>): Promise<Row> {
   return {
     id: row.id,
     entityId: row.entity_id,
@@ -913,13 +1521,17 @@ async function shapeBill(row: Row, hoje = new Date()): Promise<Row> {
     recurring: row.recurring,
     lastPaidAt: row.last_paid_at,
     ...billStatus(row.due_day, row.last_paid_at, hoje),
-    entity: await entidadeResumo(row.entity_id),
+    entity: mapa ? daMapa(mapa, row.entity_id) : await entidadeResumo(row.entity_id),
   };
 }
 
 export async function listBills(householdId: string): Promise<Row[]> {
-  const rows = await sql`SELECT * FROM bills WHERE household_id = ${householdId} ORDER BY due_day ASC`;
-  return Promise.all(rows.map((r) => shapeBill(r)));
+  const [rows, mapa] = await Promise.all([
+    sql`SELECT * FROM bills WHERE household_id = ${householdId} ORDER BY due_day ASC`,
+    mapaEntidades(householdId),
+  ]);
+  const hoje = new Date();
+  return Promise.all(rows.map((r) => shapeBill(r, hoje, mapa)));
 }
 
 export async function createBill(householdId: string, b: {
@@ -939,7 +1551,7 @@ export async function createBill(householdId: string, b: {
 
 export async function updateBill(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM bills WHERE id = ${id} AND household_id = ${householdId}`;
-  if (!cur) throw new ApiError("Conta a pagar nao encontrada", 404);
+  if (!cur) throw new ApiError("Conta a pagar não encontrada", 404);
   const next = {
     name: patch.name ?? cur.name,
     amount: patch.amount === undefined ? Number(cur.amount) : toCents(patch.amount),

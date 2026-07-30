@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 
 type Category = { id: string; name: string; icon: string };
 type Rule = {
@@ -39,8 +39,8 @@ export default function RegrasPage() {
       setRules(r);
       setCategories(c);
       setErro("");
-    } catch (e: any) {
-      setErro(e.message);
+    } catch (e) {
+      setErro(mensagemDeErro(e));
     }
   }
 
@@ -59,8 +59,8 @@ export default function RegrasPage() {
       });
       setForm({ matchType: "contains", pattern: "", categoryId: "", priority: "0" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -72,8 +72,8 @@ export default function RegrasPage() {
         body: JSON.stringify({ id: rule.id, active: !rule.active }),
       });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -81,8 +81,8 @@ export default function RegrasPage() {
     try {
       await fetch(`/api/regras?id=${id}`, { method: "DELETE" });
       await load();
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     }
   }
 
@@ -94,8 +94,8 @@ export default function RegrasPage() {
           <p className="eyebrow text-honey-deep">Automatizar</p>
           <h1 className="mt-1 font-serif text-3xl text-ink">Regras de categoria</h1>
           <p className="mt-1 text-sm text-sage">
-            Quando a descricao de um lancamento casa com o texto, a categoria e' preenchida
-            sozinha — na importacao de planilha e nos lancamentos sem categoria. A regra de
+            Quando a descrição de um lançamento casa com o texto, a categoria é preenchida
+            sozinha — na importação de planilha e nos lançamentos sem categoria. A regra de
             maior prioridade vence.
           </p>
         </div>
@@ -158,7 +158,7 @@ export default function RegrasPage() {
           })}
           {rules.length === 0 && (
             <p className="px-5 py-10 text-center text-sm text-sage">
-              Nenhuma regra ainda. Crie uma acima — ex: descricao contem &ldquo;ifood&rdquo; → Alimentacao.
+              Nenhuma regra ainda. Crie uma acima — ex: descrição contém &ldquo;ifood&rdquo; → Alimentação.
             </p>
           )}
         </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { postJson } from "@/lib/http";
+import { useSearchParams } from "next/navigation";
+import { postJson, mensagemDeErro } from "@/lib/http";
 
 function Wordmark() {
   return (
@@ -13,8 +14,11 @@ function Wordmark() {
   );
 }
 
-export default function RegistrarPage() {
-  const [tipo, setTipo] = useState<"CASAL" | "UNICA">("CASAL");
+function RegistrarForm() {
+  // Chegou por convite: entra numa casa que ja existe, entao sempre cadastro
+  // individual - a outra pessoa ja esta la.
+  const convite = useSearchParams().get("convite")?.trim().toLowerCase() || "";
+  const [tipo, setTipo] = useState<"CASAL" | "UNICA">(convite ? "UNICA" : "CASAL");
   const [form, setForm] = useState({ name: "", email: "", partnerName: "", partnerEmail: "" });
   const [erro, setErro] = useState("");
   const [enviado, setEnviado] = useState("");
@@ -29,13 +33,14 @@ export default function RegistrarPage() {
         tipo,
         name: form.name,
         email: form.email,
+        ...(convite ? { inviteCode: convite } : {}),
         ...(tipo === "CASAL"
           ? { partnerName: form.partnerName, partnerEmail: form.partnerEmail }
           : {}),
       });
       setEnviado(res.message);
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     } finally {
       setEnviando(false);
     }
@@ -66,30 +71,38 @@ export default function RegistrarPage() {
       <div className="w-full max-w-md animate-rise">
         <Wordmark />
         <div className="card mt-8 p-8">
-          <h1 className="font-serif text-2xl text-ink">Criar a conta de voces</h1>
-          <p className="mt-1 text-sm text-sage">Comecem juntos, ou so voce por enquanto.</p>
+          <h1 className="font-serif text-2xl text-ink">
+            {convite ? "Você foi convidado(a)" : "Criar a conta de vocês"}
+          </h1>
+          <p className="mt-1 text-sm text-sage">
+            {convite
+              ? "Crie sua conta para entrar na casa de quem te convidou. Vocês vão ver os mesmos lançamentos."
+              : "Comecem juntos, ou só você por enquanto."}
+          </p>
 
-          {/* Toggle casal / unica: a escolha do casal vem primeiro (o coracao do app). */}
-          <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-pine/5 p-1">
-            <button
-              type="button"
-              onClick={() => setTipo("CASAL")}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
-                tipo === "CASAL" ? "bg-pine text-cream shadow-sm" : "text-pine/60 hover:text-pine"
-              }`}
-            >
-              Nos dois
-            </button>
-            <button
-              type="button"
-              onClick={() => setTipo("UNICA")}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
-                tipo === "UNICA" ? "bg-pine text-cream shadow-sm" : "text-pine/60 hover:text-pine"
-              }`}
-            >
-              So eu
-            </button>
-          </div>
+          {/* Com convite nao ha escolha: a casa ja existe e a outra pessoa ja esta nela. */}
+          {!convite && (
+            <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-pine/5 p-1">
+              <button
+                type="button"
+                onClick={() => setTipo("CASAL")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                  tipo === "CASAL" ? "bg-pine text-cream shadow-sm" : "text-pine/60 hover:text-pine"
+                }`}
+              >
+                Nós dois
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipo("UNICA")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                  tipo === "UNICA" ? "bg-pine text-cream shadow-sm" : "text-pine/60 hover:text-pine"
+                }`}
+              >
+                Só eu
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-5 space-y-4">
             <div className="space-y-1.5">
@@ -121,8 +134,8 @@ export default function RegistrarPage() {
 
             <p className="text-xs leading-relaxed text-sage">
               {tipo === "CASAL"
-                ? "Voces dois recebem um email de confirmacao e entram com a senha temporaria Muda@123."
-                : "Voce recebe um email de confirmacao e entra com a senha temporaria Muda@123."}
+                ? "Vocês dois recebem um email de confirmação e entram com a senha temporaria Muda@123."
+                : "Você recebe um email de confirmação e entra com a senha temporaria Muda@123."}
             </p>
 
             {erro && <p className="text-sm font-medium text-clay">{erro}</p>}
@@ -134,10 +147,19 @@ export default function RegistrarPage() {
         </div>
 
         <p className="mt-6 text-center text-sm text-sage">
-          Ja tem conta?{" "}
+          Já tem conta?{" "}
           <Link href="/login" className="link-honey">Entrar</Link>
         </p>
       </div>
     </div>
+  );
+}
+
+export default function RegistrarPage() {
+  // useSearchParams exige Suspense no App Router.
+  return (
+    <Suspense>
+      <RegistrarForm />
+    </Suspense>
   );
 }

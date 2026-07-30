@@ -10,8 +10,10 @@ export default function RegistrarSW() {
     if (process.env.NODE_ENV !== "production") return;
     if (!("serviceWorker" in navigator)) return;
 
-    navigator.serviceWorker.register("/sw.js").catch((e) => {
-      console.error("Falha ao registrar o service worker:", e);
+    // So a mensagem: o stack nao ajuda o usuario e polui o console do cliente.
+    navigator.serviceWorker.register("/sw.js").catch((e: unknown) => {
+      const motivo = e instanceof Error ? e.message : String(e);
+      console.warn(`Falha ao registrar o service worker: ${motivo}`);
     });
   }, []);
 

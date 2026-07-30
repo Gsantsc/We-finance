@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireHousehold } from "@/lib/api";
+import { ApiError, corpoDeErro } from "@/lib/errors";
 import {
   listItems,
   listAccounts,
@@ -26,10 +27,7 @@ export async function POST() {
   try {
     const { session, householdId } = await requireHousehold();
     if (!podeSincronizar(session.user.email)) {
-      return NextResponse.json(
-        { ok: false, error: "Sincronizacao nao habilitada para este usuario." },
-        { status: 403 }
-      );
+      throw new ApiError("Sincronização não habilitada para este usuário.", 403);
     }
 
     const items = await listItems();
@@ -71,11 +69,11 @@ export async function POST() {
     }
 
     return NextResponse.json({ ok: true, accountsSynced, transactionsSynced });
-  } catch (err: any) {
-    console.error(err);
-    const status = typeof err?.status === "number" ? err.status : 500;
-    // 500: mensagem generica - a crua pode ecoar resposta bruta da Pluggy.
-    const mensagem = status === 500 ? "Erro interno na sincronizacao." : err.message;
-    return NextResponse.json({ ok: false, error: mensagem }, { status });
+  } catch (err) {
+    // Mesmo shape { code, message } das demais rotas. Num 500 a mensagem crua
+    // fica so no log - ela pode ecoar a resposta bruta da Pluggy.
+    const { body, status } = corpoDeErro(err);
+    if (status >= 500) console.error("[sync] erro não tratado:", err);
+    return NextResponse.json(body, { status });
   }
 }

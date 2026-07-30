@@ -18,3 +18,9 @@ certs/
 *.crt
 *.p12
 .playwright-mcp/
+
+# Log do servidor de desenvolvimento.
+dev.log
+
+# Dumps do banco (contem dado financeiro real).
+backups/

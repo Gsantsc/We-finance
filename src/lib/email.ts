@@ -8,12 +8,23 @@ import { Resend } from "resend";
 
 function getResend(): Resend {
   const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Error("RESEND_API_KEY nao definida.");
+  if (!key) throw new Error("RESEND_API_KEY não definida.");
   return new Resend(key);
 }
 
+// Base absoluta para os links dos e-mails.
+//
+// NEXTAUTH_URL as vezes e' configurada sem protocolo ("meuapp.vercel.app"). O
+// NextAuth tolera e assume https, mas num e-mail o href sai relativo e o link
+// simplesmente nao abre. localhost vira http; o resto, https.
+export function baseUrl(): string {
+  const bruto = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").trim().replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(bruto)) return bruto;
+  return `${bruto.startsWith("localhost") || bruto.startsWith("127.0.0.1") ? "http" : "https"}://${bruto}`;
+}
+
 export async function sendVerificationEmail(to: string, name: string, rawToken: string) {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const base = baseUrl();
   const link = `${base}/api/auth/confirmar?token=${rawToken}`;
   const from = process.env.EMAIL_FROM ?? "We Finance <onboarding@resend.dev>";
 
@@ -41,5 +52,36 @@ export async function sendVerificationEmail(to: string, name: string, rawToken: 
       </div>
     `,
   });
-  if (error) throw new Error(`Falha ao enviar email de verificacao: ${error.message}`);
+  if (error) throw new Error(`Falha ao enviar e-mail de verificação: ${error.message}`);
+}
+
+export async function sendPasswordResetEmail(to: string, name: string, rawToken: string) {
+  const base = baseUrl();
+  const link = `${base}/redefinir-senha?token=${rawToken}`;
+  const from = process.env.EMAIL_FROM ?? "We Finance <onboarding@resend.dev>";
+
+  const { error } = await getResend().emails.send({
+    from,
+    to,
+    subject: "Redefinir sua senha - We Finance",
+    html: `
+      <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <h2 style="color:#1C3A31">Redefinir senha</h2>
+        <p style="color:#475569;line-height:1.6">
+          Olá, ${name}. Recebemos um pedido para redefinir a senha da sua conta no
+          We Finance. Clique no botão abaixo para escolher uma nova.
+        </p>
+        <a href="${link}"
+           style="display:inline-block;background:#1C3A31;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:500;margin:16px 0">
+          Escolher nova senha
+        </a>
+        <p style="color:#94a3b8;font-size:13px;line-height:1.6">
+          O link vale por 1 hora e só pode ser usado uma vez.<br />
+          <strong>Se não foi você que pediu, ignore este e-mail</strong> — sua senha
+          continua a mesma e ninguém teve acesso à sua conta.
+        </p>
+      </div>
+    `,
+  });
+  if (error) throw new Error(`Falha ao enviar e-mail de redefinição: ${error.message}`);
 }

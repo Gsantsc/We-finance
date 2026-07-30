@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { postJson } from "@/lib/http";
+import { postJson, mensagemDeErro } from "@/lib/http";
 
 export default function TrocarSenhaPage() {
   const router = useRouter();
@@ -16,7 +16,7 @@ export default function TrocarSenhaPage() {
     e.preventDefault();
     setErro("");
     if (form.newPassword !== form.confirm) {
-      setErro("As senhas nao conferem.");
+      setErro("As senhas não conferem.");
       return;
     }
     setSalvando(true);
@@ -24,8 +24,8 @@ export default function TrocarSenhaPage() {
       await postJson("/api/auth/trocar-senha", { newPassword: form.newPassword });
       await update(); // limpa o mustChangePassword do JWT antes de seguir
       router.push("/dashboard");
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     } finally {
       setSalvando(false);
     }
@@ -37,7 +37,7 @@ export default function TrocarSenhaPage() {
         <p className="eyebrow text-honey-deep">Primeiro acesso</p>
         <h1 className="mt-2 font-serif text-2xl text-ink">Crie a sua senha</h1>
         <p className="mt-1 text-sm text-sage">
-          Voce entrou com a senha temporaria. Escolha a definitiva: 8+ caracteres,
+          Você entrou com a senha temporária. Escolha a definitiva: 8+ caracteres,
           com maiuscula, minuscula e numero.
         </p>
 

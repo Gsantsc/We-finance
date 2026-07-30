@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson } from "@/lib/http";
+import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import { dataDeHojeSP } from "@/lib/rules";
 
 type Category = { id: string; name: string; icon: string; isIncome?: boolean };
 type Account = { id: string; name: string; entity?: { id: string; name: string } | null };
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = dataDeHojeSP;
 
 // Atalho do PWA (manifest.webmanifest > shortcuts): tela unica, so o essencial
 // para lancar um gasto rapido - sem lista, sem filtros.
@@ -30,8 +31,8 @@ export default function NovoGastoPage() {
         ]);
         setAccounts(accRes);
         setCategories(catRes.filter((c) => !c.isIncome));
-      } catch (e: any) {
-        setErro(e.message);
+      } catch (e) {
+        setErro(mensagemDeErro(e));
       }
     })();
   }, []);
@@ -52,8 +53,8 @@ export default function NovoGastoPage() {
       setForm({ accountId: form.accountId, categoryId: "", description: "", amount: "" });
       setSalvo(true);
       setTimeout(() => setSalvo(false), 2500);
-    } catch (err: any) {
-      setErro(err.message);
+    } catch (err) {
+      setErro(mensagemDeErro(err));
     } finally {
       setSalvando(false);
     }
@@ -65,10 +66,10 @@ export default function NovoGastoPage() {
       <main className="mx-auto max-w-md space-y-6 px-4 py-8">
         <div>
           <p className="eyebrow text-honey-deep">Rapido</p>
-          <h1 className="mt-1 font-serif text-3xl text-ink">Lancar gasto</h1>
+          <h1 className="mt-1 font-serif text-3xl text-ink">Lançar gasto</h1>
           <p className="mt-1 text-sm text-sage">
             Uma despesa de hoje, em segundos. Para receita ou outra data, use{" "}
-            <Link href="/transacoes" className="link-honey">Lancamentos</Link>.
+            <Link href="/transacoes" className="link-honey">Lançamentos</Link>.
           </p>
         </div>
 
@@ -128,7 +129,7 @@ export default function NovoGastoPage() {
           </div>
 
           <button type="submit" disabled={salvando} className="btn-accent w-full py-3">
-            {salvando ? "Salvando..." : "Lancar gasto"}
+            {salvando ? "Salvando..." : "Lançar gasto"}
           </button>
         </form>
       </main>

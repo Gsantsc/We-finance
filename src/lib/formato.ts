@@ -6,7 +6,7 @@ export const currency = new Intl.NumberFormat("pt-BR", {
 });
 
 export const nomesMeses = [
-  "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 

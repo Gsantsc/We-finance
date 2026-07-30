@@ -8,12 +8,15 @@ export async function GET(req: NextRequest) {
     const { householdId } = await requireHousehold();
     const { searchParams } = new URL(req.url);
     const limitParam = Number(searchParams.get("limit"));
+    const offsetParam = Number(searchParams.get("offset"));
 
     return listTransactions(householdId, {
       entityId: searchParams.get("entityId"),
       accountId: searchParams.get("accountId"),
       categoryId: searchParams.get("categoryId"),
+      month: searchParams.get("mes"),
       limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
+      offset: Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : undefined,
     });
   });
 }
@@ -31,13 +34,15 @@ export async function POST(req: NextRequest) {
 
     const body = validate(transactionCreateSchema, raw);
 
-    // Parcelado: uma linha por mes (o amount informado e' o total da compra).
+    // Parcelado: uma linha por mes. O modo diz se o amount e' o total da compra
+    // ("split") ou o valor de cada parcela ("fixed", caso do emprestimo).
     if (body.installments && body.installments > 1) {
       return createInstallmentPurchase(householdId, {
         accountId: body.accountId,
         description: body.description,
-        totalAmount: body.amount,
+        amount: body.amount,
         installments: body.installments,
+        mode: body.installmentMode ?? "fixed",
         date: body.date,
         categoryId: body.categoryId ?? null,
         createdById: session.user?.id ?? null,

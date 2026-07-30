@@ -12,6 +12,7 @@
     "start:https": "node scripts/servidor-https.mjs",
     "certificados": "node scripts/gerar-certificados.mjs",
     "seed": "tsx scripts/seed.ts",
+    "migrar": "tsx scripts/migrar.ts",
     "icones": "node scripts/gerar-icones.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
