@@ -147,7 +147,7 @@ function BrandPanel() {
       </div>
 
       <p className="relative hidden text-xs text-cream/40 lg:block">
-        Seus dados sao privados da sua casa. So voces dois enxergam.
+        Seus dados são privados da sua casa. Só vocês dois enxergam.
       </p>
     </div>
   );
