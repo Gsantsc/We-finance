@@ -14,6 +14,7 @@ const links = [
   { href: "/metas", label: "Metas" },
   { href: "/contas-a-pagar", label: "A pagar" },
   { href: "/entidades", label: "Entidades" },
+  { href: "/casa", label: "Nossa casa" },
 ];
 
 // Atalhos que nao entram na barra principal (aparecem so no menu mobile).

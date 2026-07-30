@@ -45,8 +45,25 @@ export const registerSchema = z
     email,
     partnerName: nome.optional(),
     partnerEmail: email.optional(),
+    // Quem chega por convite ENTRA numa casa existente em vez de criar uma.
+    // Aceita os codigos antigos de 8 caracteres e os novos de 16.
+    inviteCode: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-f0-9]{8}([a-f0-9]{8})?$/, "código de convite inválido")
+      .optional(),
   })
   .superRefine((v, ctx) => {
+    // Convite e cadastro de casal se contradizem: um entra numa casa que ja
+    // existe, o outro cria uma nova com duas pessoas.
+    if (v.inviteCode && v.tipo === "CASAL") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inviteCode"],
+        message: "quem entra por convite se cadastra sozinho",
+      });
+    }
     if (v.tipo === "CASAL") {
       if (!v.partnerName)
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partnerName"], message: "obrigatório para conta casal" });

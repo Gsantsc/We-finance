@@ -131,6 +131,99 @@ export async function setUserPassword(userId: string, passwordHash: string): Pro
   await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false WHERE id = ${userId}`;
 }
 
+// ---------- LGPD: portabilidade e exclusao ----------
+
+// Tudo que a casa tem, num objeto so, para o usuario baixar. Portabilidade
+// (art. 18, V) pede formato legivel por maquina - JSON resolve.
+//
+// Escopo e' a CASA, nao a pessoa: as duas compartilham o mesmo ledger e separar
+// "meus" lancamentos dos "dela" nao faria sentido num app feito para casal.
+export async function exportarDadosDaCasa(householdId: string): Promise<Row> {
+  const [casa, membros, entidades, contas, transacoes, metas, aportes, contasAPagar, orcamentos, regras, lotes] =
+    await Promise.all([
+      sql`SELECT id, name, created_at FROM households WHERE id = ${householdId}`,
+      sql`SELECT u.id, u.name, u.email, u.created_at, hm.role, hm.joined_at
+          FROM users u JOIN household_members hm ON hm.user_id = u.id
+          WHERE hm.household_id = ${householdId}`,
+      sql`SELECT * FROM entities WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM accounts WHERE household_id = ${householdId}`,
+      sql`SELECT t.* FROM transactions t
+          JOIN accounts a ON a.id = t.account_id
+          WHERE a.household_id = ${householdId} ORDER BY t.date`,
+      sql`SELECT * FROM goals WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM goal_contributions WHERE household_id = ${householdId} ORDER BY date`,
+      sql`SELECT * FROM bills WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM budgets WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM categorization_rules WHERE household_id = ${householdId}`,
+      sql`SELECT * FROM import_batches WHERE household_id = ${householdId}`,
+    ]);
+
+  return {
+    exportadoEm: new Date().toISOString(),
+    formato: "we-finance/v1",
+    // password_hash NUNCA entra: e' segredo de autenticacao, nao dado do titular.
+    casa: casa[0] ?? null,
+    membros,
+    entidades,
+    contas,
+    transacoes,
+    metas,
+    aportesDeMetas: aportes,
+    contasAPagar,
+    orcamentos,
+    regrasDeCategorizacao: regras,
+    lotesDeImportacao: lotes,
+  };
+}
+
+// Apaga a casa inteira e quem so pertence a ela.
+//
+// Nao e' "marcar como inativo": o titular pediu exclusao (art. 18, VI) e o dado
+// sai do banco. A ordem respeita as FKs; users vai por ultimo, e so os membros
+// desta casa - alguem que por algum motivo esteja em outra casa fica de pe.
+export async function excluirCasaEDados(householdId: string): Promise<Row> {
+  return inTransaction(async (tx) => {
+    const membros = await tx`
+      SELECT user_id FROM household_members WHERE household_id = ${householdId}
+    `;
+    const ids = membros.map((m) => m.user_id as string);
+
+    const contagem: Record<string, number> = {};
+    const apagar = async (rotulo: string, q: Promise<any>) => {
+      const r = await q;
+      contagem[rotulo] = r.count ?? 0;
+    };
+
+    await apagar("transacoes", tx`
+      DELETE FROM transactions WHERE account_id IN (
+        SELECT id FROM accounts WHERE household_id = ${householdId}
+      )`);
+    await apagar("aportes", tx`DELETE FROM goal_contributions WHERE household_id = ${householdId}`);
+    await apagar("lotes", tx`DELETE FROM import_batches WHERE household_id = ${householdId}`);
+    await apagar("orcamentos", tx`DELETE FROM budgets WHERE household_id = ${householdId}`);
+    await apagar("contasAPagar", tx`DELETE FROM bills WHERE household_id = ${householdId}`);
+    await apagar("metas", tx`DELETE FROM goals WHERE household_id = ${householdId}`);
+    await apagar("regras", tx`DELETE FROM categorization_rules WHERE household_id = ${householdId}`);
+    await apagar("contas", tx`DELETE FROM accounts WHERE household_id = ${householdId}`);
+    await apagar("entidades", tx`DELETE FROM entities WHERE household_id = ${householdId}`);
+    await apagar("vinculos", tx`DELETE FROM household_members WHERE household_id = ${householdId}`);
+    await apagar("casa", tx`DELETE FROM households WHERE id = ${householdId}`);
+
+    if (ids.length > 0) {
+      // So remove quem nao sobrou em nenhuma outra casa.
+      await tx`DELETE FROM password_reset_tokens WHERE user_id = ANY(${ids})`;
+      await tx`DELETE FROM email_verification_tokens WHERE user_id = ANY(${ids})`;
+      const r = await tx`
+        DELETE FROM users WHERE id = ANY(${ids})
+          AND id NOT IN (SELECT user_id FROM household_members)
+      `;
+      contagem.usuarios = r.count ?? 0;
+    }
+
+    return contagem;
+  });
+}
+
 // ---------- Recuperacao de senha ----------
 
 // Janela curta de proposito: o link chega por email e da acesso total a conta.
@@ -236,8 +329,29 @@ function shapeHousehold(row: Row): Row {
   return { id: row.id, name: row.name, inviteCode: row.invite_code, createdAt: row.created_at };
 }
 
+// 8 bytes = 64 bits. Os 4 bytes originais davam 32 bits, e quem adivinha um
+// codigo entra numa casa e ve o dinheiro inteiro dela - nao e' um identificador
+// qualquer, e' credencial de acesso.
 function generateInviteCode(): string {
-  return randomBytes(4).toString("hex");
+  return randomBytes(8).toString("hex");
+}
+
+// Troca o codigo da casa. Existe para o caso de o link ter sido compartilhado
+// no grupo errado: o antigo para de valer na hora.
+export async function regenerateInviteCode(householdId: string): Promise<string> {
+  let code = generateInviteCode();
+  while ((await sql`SELECT 1 FROM households WHERE invite_code = ${code}`).length > 0) {
+    code = generateInviteCode();
+  }
+  await sql`UPDATE households SET invite_code = ${code} WHERE id = ${householdId}`;
+  return code;
+}
+
+export async function countHouseholdMembers(householdId: string): Promise<number> {
+  const [r] = await sql`
+    SELECT count(*)::int n FROM household_members WHERE household_id = ${householdId}
+  `;
+  return Number(r.n);
 }
 
 export async function getHouseholdIdForUser(userId: string): Promise<string | null> {
