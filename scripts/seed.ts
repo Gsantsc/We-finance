@@ -50,21 +50,30 @@ async function main() {
     if (!(await findEntityByName(householdId, e.name))) await createEntity(householdId, e);
   }
 
+  // Grafia acentuada, igual a que a migracao 0007 deixou no banco.
+  // upsertCategoryByName casa sem acento, entao rodar isto numa base antiga nao
+  // duplica nada - so reconhece o que ja existe.
   const categories: [string, string, boolean?][] = [
     ["Moradia", "🏠"],
-    ["Alimentacao", "🍽️"],
+    ["Alimentação", "🍽️"],
+    ["Mercado", "🛒"],
     ["Transporte", "🚗"],
-    ["Saude", "🩺"],
-    ["Educacao", "📚"],
+    ["Contas", "🧾"],
+    ["Saúde", "🩺"],
+    ["Educação", "📚"],
     ["Lazer", "🎉"],
     ["Compras", "🛍️"],
+    ["Vestuário", "👕"],
     ["Assinaturas", "🔁"],
     ["Impostos e taxas", "🧾"],
-    ["Servicos PJ", "💼"],
-    ["Salario", "💰", true],
+    ["Serviços PJ", "💼"],
+    ["Salário", "💰", true],
     ["Receita PJ", "📈", true],
+    ["Freelance", "💼", true],
+    ["Rendimentos", "📈", true],
+    ["Reembolso", "↩️", true],
     ["Investimentos", "📊"],
-    ["Transferencia", "🔄"],
+    ["Transferência", "🔄"],
     ["Outros", "💸"],
   ];
   for (const [name, icon, isIncome] of categories) {

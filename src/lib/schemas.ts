@@ -58,13 +58,26 @@ export const registerSchema = z
   });
 
 // Senha forte na troca: minimo 8, com letra maiuscula, minuscula e numero.
+const senhaForte = z
+  .string()
+  .min(8, "mínimo 8 caracteres")
+  .regex(/[a-z]/, "precisa de letra minúscula")
+  .regex(/[A-Z]/, "precisa de letra maiúscula")
+  .regex(/[0-9]/, "precisa de número");
+
 export const changePasswordSchema = z.object({
-  newPassword: z
-    .string()
-    .min(8, "mínimo 8 caracteres")
-    .regex(/[a-z]/, "precisa de letra minuscula")
-    .regex(/[A-Z]/, "precisa de letra maiuscula")
-    .regex(/[0-9]/, "precisa de número"),
+  newPassword: senhaForte,
+});
+
+// ---------- Recuperacao de senha ----------
+
+export const forgotPasswordSchema = z.object({ email });
+
+export const resetPasswordSchema = z.object({
+  // O token do link e' 32 bytes em hex. Formato fixo, entao lixo e' recusado
+  // antes de encostar no banco.
+  token: z.string().regex(/^[a-f0-9]{64}$/, "link inválido"),
+  newPassword: senhaForte,
 });
 
 // ---------- Entidades ----------

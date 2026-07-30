@@ -21,3 +21,6 @@ certs/
 
 # Log do servidor de desenvolvimento.
 dev.log
+
+# Dumps do banco (contem dado financeiro real).
+backups/

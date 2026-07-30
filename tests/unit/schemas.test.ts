@@ -1,4 +1,39 @@
 import { describe, expect, it } from "vitest";
+import { forgotPasswordSchema, resetPasswordSchema } from "@/lib/schemas";
+
+describe("@regression recuperacao de senha", () => {
+  const tokenOk = "a".repeat(64);
+
+  it("aceita um pedido valido", () => {
+    expect(forgotPasswordSchema.safeParse({ email: "Ana@Exemplo.COM " }).success).toBe(true);
+  });
+
+  it("normaliza o email (trim + minusculas) para casar com o cadastro", () => {
+    const r = forgotPasswordSchema.parse({ email: "  Ana@Exemplo.COM " });
+    expect(r.email).toBe("ana@exemplo.com");
+  });
+
+  it("recusa email invalido", () => {
+    expect(forgotPasswordSchema.safeParse({ email: "nao-e-email" }).success).toBe(false);
+  });
+
+  it("token precisa ter o formato exato de 64 hex", () => {
+    const senha = "Senha123";
+    expect(resetPasswordSchema.safeParse({ token: tokenOk, newPassword: senha }).success).toBe(true);
+    expect(resetPasswordSchema.safeParse({ token: "curto", newPassword: senha }).success).toBe(false);
+    expect(resetPasswordSchema.safeParse({ token: "z".repeat(64), newPassword: senha }).success).toBe(false);
+    // Nao deixa passar tentativa de injecao pelo token.
+    expect(resetPasswordSchema.safeParse({ token: "' OR 1=1 --", newPassword: senha }).success).toBe(false);
+  });
+
+  it("exige senha forte na redefinicao", () => {
+    const fracas = ["curta1A", "semmaiuscula1", "SEMMINUSCULA1", "SemNumeroAqui"];
+    for (const p of fracas) {
+      expect(resetPasswordSchema.safeParse({ token: tokenOk, newPassword: p }).success).toBe(false);
+    }
+    expect(resetPasswordSchema.safeParse({ token: tokenOk, newPassword: "Senha123" }).success).toBe(true);
+  });
+});
 import {
   billCreateSchema,
   budgetUpsertSchema,

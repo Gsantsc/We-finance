@@ -131,6 +131,58 @@ export async function setUserPassword(userId: string, passwordHash: string): Pro
   await sql`UPDATE users SET password_hash = ${passwordHash}, must_change_password = false WHERE id = ${userId}`;
 }
 
+// ---------- Recuperacao de senha ----------
+
+// Janela curta de proposito: o link chega por email e da acesso total a conta.
+const RESET_VALIDO_MS = 60 * 60 * 1000; // 1 hora
+
+// Cria o token e INVALIDA os anteriores do mesmo usuario. Sem isso, pedir o
+// link tres vezes deixa tres chaves validas circulando em tres emails.
+export async function createPasswordResetToken(
+  userId: string,
+  ip?: string | null
+): Promise<string> {
+  const rawToken = randomBytes(32).toString("hex");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const ts = nowIso();
+  await inTransaction(async (tx) => {
+    await tx`UPDATE password_reset_tokens SET used_at = ${ts}
+             WHERE user_id = ${userId} AND used_at IS NULL`;
+    await tx`INSERT INTO password_reset_tokens
+             (id, user_id, token_hash, expires_at, created_at, requested_ip)
+             VALUES (${newId()}, ${userId}, ${tokenHash},
+                     ${new Date(Date.now() + RESET_VALIDO_MS).toISOString()}, ${ts}, ${ip ?? null})`;
+  });
+  return rawToken;
+}
+
+// Troca a senha e queima o token. Devolve null para token inexistente, expirado
+// ou ja usado - a rota nao distingue os casos para nao virar oraculo.
+export async function consumePasswordResetToken(
+  rawToken: string,
+  passwordHash: string
+): Promise<Row | null> {
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  return inTransaction(async (tx) => {
+    const [row] = await tx`
+      SELECT * FROM password_reset_tokens WHERE token_hash = ${tokenHash}
+    `;
+    if (!row || row.used_at) return null;
+    if (new Date(row.expires_at).getTime() < Date.now()) return null;
+
+    const ts = nowIso();
+    await tx`UPDATE password_reset_tokens SET used_at = ${ts} WHERE id = ${row.id}`;
+    // must_change_password sai junto: quem acabou de escolher a senha nao pode
+    // cair na tela de troca obrigatoria logo depois.
+    await tx`UPDATE users
+             SET password_hash = ${passwordHash}, must_change_password = false,
+                 email_verified_at = COALESCE(email_verified_at, ${ts})
+             WHERE id = ${row.user_id}`;
+    const [user] = await tx`SELECT * FROM users WHERE id = ${row.user_id}`;
+    return user ? shapeUser(user) : null;
+  });
+}
+
 // ---------- Verificacao de email ----------
 
 export async function createEmailVerificationToken(userId: string): Promise<string> {
@@ -412,8 +464,14 @@ export async function findCategoryByName(name: string): Promise<Row | undefined>
   return row ? shapeCategory(row) : undefined;
 }
 
+// Casa SEM ACENTO de proposito. Com comparacao exata, "Salario" e "Salário"
+// viram duas categorias: o seed recriaria as versoes sem acento que a migracao
+// 0007 acabou de corrigir, e o sync da Pluggy (que passa o nome vindo da API
+// deles) multiplicaria variante a cada grafia diferente.
 export async function upsertCategoryByName(name: string, icon = "💸", isIncome = false): Promise<Row> {
-  const [existing] = await sql`SELECT * FROM categories WHERE name = ${name}`;
+  const [existing] = await sql`
+    SELECT * FROM categories WHERE public.sem_acento(name) = public.sem_acento(${name})
+  `;
   if (existing) return shapeCategory(existing);
   const id = newId();
   await sql`INSERT INTO categories (id, name, icon, is_income) VALUES (${id}, ${name}, ${icon}, ${isIncome})`;
@@ -1275,8 +1333,15 @@ export async function dashboardMonth(householdId: string, month: string): Promis
     };
   });
 
+  // "Compartilhado" (entidades sem dono) so faz sentido AO LADO de pelo menos
+  // uma pessoa. Sem nenhum dono definido, ele fica identico ao total e a tela
+  // mostra duas colunas com os mesmos numeros, sugerindo uma divisao que nao
+  // existe. Nesse caso o total do casal ja conta a historia inteira.
+  const temPessoa = colunas.some((c) => !c.isTotal && c.key !== "compartilhado");
+  const visiveis = temPessoa ? colunas : colunas.filter((c) => c.isTotal);
+
   // Casal primeiro, depois as pessoas por nome, e o "Compartilhado" por ultimo.
-  colunas.sort((a, b) => {
+  visiveis.sort((a, b) => {
     if (a.isTotal !== b.isTotal) return a.isTotal ? -1 : 1;
     if (a.key === "compartilhado") return 1;
     if (b.key === "compartilhado") return -1;
@@ -1286,7 +1351,7 @@ export async function dashboardMonth(householdId: string, month: string): Promis
   return {
     month,
     mesesDisponiveis: meses,
-    colunas,
+    colunas: visiveis,
     evolucao,
     categorias: categorias.map((c) => ({
       id: c.category_id,

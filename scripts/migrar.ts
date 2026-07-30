@@ -34,6 +34,19 @@ async function main() {
     )
   `;
 
+  // Exclusao mutua entre processos. O INSERT em schema_migrations so acontece
+  // no FIM de cada arquivo, entao dois deploys simultaneos leem a mesma lista de
+  // pendentes e aplicam tudo em duplicidade - incluindo os UPDATE de dados. Um
+  // advisory lock de sessao serializa: o segundo espera ou desiste.
+  const [{ pg_try_advisory_lock: peguei }] = await sql<{ pg_try_advisory_lock: boolean }[]>`
+    SELECT pg_try_advisory_lock(4242424242)
+  `;
+  if (!peguei) {
+    console.error("Outra migracao esta rodando agora (advisory lock tomado). Abortando.");
+    process.exitCode = 1;
+    return;
+  }
+
   const aplicadas = new Set(
     (await sql<{ version: string }[]>`SELECT version FROM public.schema_migrations`).map(
       (r) => r.version
@@ -86,4 +99,9 @@ main()
     console.error(err);
     process.exitCode = 1;
   })
-  .finally(() => sql.end());
+  .finally(async () => {
+    // Liberar antes de fechar: sql.end() sozinho ja derrubaria a sessao e com
+    // ela o lock, mas soltar explicitamente deixa o intento no codigo.
+    await sql`SELECT pg_advisory_unlock(4242424242)`.catch(() => {});
+    await sql.end();
+  });

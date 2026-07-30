@@ -73,7 +73,12 @@ function LoginForm() {
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="password" className="eyebrow">Senha</label>
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="password" className="eyebrow">Senha</label>
+            <Link href="/esqueci-senha" className="link-honey text-xs">
+              Esqueci minha senha
+            </Link>
+          </div>
           <input
             id="password"
             type="password"
