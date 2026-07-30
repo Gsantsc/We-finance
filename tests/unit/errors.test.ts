@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ApiError,
   MENSAGEM_ERRO_INTERNO,
@@ -6,6 +6,7 @@ import {
   corpoDeErro,
 } from "@/lib/errors";
 import { ApiRequestError, mensagemDeErro } from "@/lib/http";
+import { baseUrl } from "@/lib/email";
 
 describe("@regression codigoParaStatus", () => {
   it("mapeia os status conhecidos", () => {
@@ -69,5 +70,35 @@ describe("@regression mensagemDeErro", () => {
   it("tem texto de fallback para o que nao e' Error", () => {
     expect(mensagemDeErro("qualquer coisa")).toBe("Não foi possível completar a ação.");
     expect(mensagemDeErro(null)).toBe("Não foi possível completar a ação.");
+  });
+});
+
+describe("@regression baseUrl", () => {
+  const original = process.env.NEXTAUTH_URL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.NEXTAUTH_URL;
+    else process.env.NEXTAUTH_URL = original;
+  });
+
+  it("completa o protocolo quando falta - senao o link do e-mail sai relativo", () => {
+    process.env.NEXTAUTH_URL = "we-finance-flame.vercel.app";
+    expect(baseUrl()).toBe("https://we-finance-flame.vercel.app");
+  });
+
+  it("respeita o protocolo ja informado", () => {
+    process.env.NEXTAUTH_URL = "https://app.exemplo.com";
+    expect(baseUrl()).toBe("https://app.exemplo.com");
+    process.env.NEXTAUTH_URL = "http://localhost:3000";
+    expect(baseUrl()).toBe("http://localhost:3000");
+  });
+
+  it("localhost sem protocolo vira http, nao https", () => {
+    process.env.NEXTAUTH_URL = "localhost:3000";
+    expect(baseUrl()).toBe("http://localhost:3000");
+  });
+
+  it("tira barra sobrando no fim, para o link nao ficar com //", () => {
+    process.env.NEXTAUTH_URL = "https://app.exemplo.com/";
+    expect(baseUrl()).toBe("https://app.exemplo.com");
   });
 });

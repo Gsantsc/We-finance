@@ -12,8 +12,19 @@ function getResend(): Resend {
   return new Resend(key);
 }
 
+// Base absoluta para os links dos e-mails.
+//
+// NEXTAUTH_URL as vezes e' configurada sem protocolo ("meuapp.vercel.app"). O
+// NextAuth tolera e assume https, mas num e-mail o href sai relativo e o link
+// simplesmente nao abre. localhost vira http; o resto, https.
+export function baseUrl(): string {
+  const bruto = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").trim().replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(bruto)) return bruto;
+  return `${bruto.startsWith("localhost") || bruto.startsWith("127.0.0.1") ? "http" : "https"}://${bruto}`;
+}
+
 export async function sendVerificationEmail(to: string, name: string, rawToken: string) {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const base = baseUrl();
   const link = `${base}/api/auth/confirmar?token=${rawToken}`;
   const from = process.env.EMAIL_FROM ?? "We Finance <onboarding@resend.dev>";
 
@@ -45,7 +56,7 @@ export async function sendVerificationEmail(to: string, name: string, rawToken: 
 }
 
 export async function sendPasswordResetEmail(to: string, name: string, rawToken: string) {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const base = baseUrl();
   const link = `${base}/redefinir-senha?token=${rawToken}`;
   const from = process.env.EMAIL_FROM ?? "We Finance <onboarding@resend.dev>";
 
