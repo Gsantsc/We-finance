@@ -93,7 +93,7 @@ export default function ContasAPagarPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="font-serif text-3xl text-ink">Contas a pagar</h1>
+          <h1 className="font-serif text-3xl text-ink">Contas fixas</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
             className="btn-primary"
@@ -140,7 +140,7 @@ export default function ContasAPagarPage() {
               className="input"
             >
               <option value="" disabled>
-                Entidade
+                Divisão
               </option>
               {entities.map((en) => (
                 <option key={en.id} value={en.id}>

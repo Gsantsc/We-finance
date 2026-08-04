@@ -99,7 +99,7 @@ export default function ContasPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="font-serif text-3xl text-ink">Contas</h1>
+          <h1 className="font-serif text-3xl text-ink">Contas e cartões</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
             className="btn-primary"
@@ -138,7 +138,7 @@ export default function ContasPage() {
               onChange={(e) => setForm({ ...form, entityId: e.target.value })}
               className="input"
             >
-              <option value="">Sem entidade</option>
+              <option value="">Sem divisão</option>
               {entities.map((en) => (
                 <option key={en.id} value={en.id}>
                   {en.name}
@@ -161,7 +161,7 @@ export default function ContasPage() {
 
         {unassigned.length > 0 && (
           <section className="rounded-2xl border border-honey/25 bg-honey/8 p-5">
-            <h2 className="font-semibold text-pine">Contas sincronizadas sem entidade definida</h2>
+            <h2 className="font-semibold text-pine">Contas sincronizadas sem divisão definida</h2>
             <p className="mt-1 text-sm text-ink/70">
               Classifique cada conta puxada da Pluggy como Casa, Pessoal ou PJ.
             </p>
@@ -177,7 +177,7 @@ export default function ContasPage() {
                     className="rounded-md border border-pine/15 px-2 py-1 text-sm"
                   >
                     <option value="" disabled>
-                      Escolher entidade
+                      Escolher divisão
                     </option>
                     {entities.map((en) => (
                       <option key={en.id} value={en.id}>
@@ -198,7 +198,7 @@ export default function ContasPage() {
               <tr>
                 <th className="px-4 py-2">Conta</th>
                 <th className="px-4 py-2">Tipo</th>
-                <th className="px-4 py-2">Entidade</th>
+                <th className="px-4 py-2">Divisão</th>
                 <th className="px-4 py-2">Origem</th>
                 <th className="px-4 py-2 text-right">Saldo</th>
               </tr>

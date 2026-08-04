@@ -80,7 +80,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
   if (dados.length === 0) {
     return (
       <p className="card px-5 py-10 text-center text-sm text-sage">
-        Sem lancamentos para montar a evolucao.
+        Sem lançamentos para montar a evolução.
       </p>
     );
   }
@@ -114,7 +114,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
         <p className="text-xs text-sage">
           {dados.length === 1
             ? "Primeiro mês com lançamento - o histórico aparece conforme os meses passam"
-            : `Ultimos ${dados.length} meses ate o mes selecionado`}
+            : `Últimos ${dados.length} meses até o mês selecionado`}
         </p>
       </div>
 
@@ -135,7 +135,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
           width={g.w}
           height={ALTURA}
           role="img"
-          aria-label={`Evolucao de receitas e despesas em ${dados.length} meses`}
+          aria-label={`Evolução de receitas e despesas em ${dados.length} meses`}
           tabIndex={0}
           className="touch-none outline-none focus-visible:ring-2 focus-visible:ring-honey"
           onPointerMove={(e) => setAtivo(indiceDoEvento(e.clientX))}
@@ -239,7 +239,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
               </p>
             ))}
             <p className="mt-1 flex items-center justify-between gap-2 border-t border-pine/10 pt-1 text-ink/75">
-              <span>Liquido</span>
+              <span>Líquido</span>
               <span className="tabular-nums">{currency.format(pontoFoco.liquido)}</span>
             </p>
           </div>
@@ -257,7 +257,7 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
                 <th className="py-1.5 pr-3 font-medium">Mês</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Receitas</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Despesas</th>
-                <th className="py-1.5 text-right font-medium">Liquido</th>
+                <th className="py-1.5 text-right font-medium">Líquido</th>
               </tr>
             </thead>
             <tbody>

@@ -92,7 +92,7 @@ export default function RegrasPage() {
       <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
         <div>
           <p className="eyebrow text-honey-deep">Automatizar</p>
-          <h1 className="mt-1 font-serif text-3xl text-ink">Regras de categoria</h1>
+          <h1 className="mt-1 font-serif text-3xl text-ink">Categorias automáticas</h1>
           <p className="mt-1 text-sm text-sage">
             Quando a descrição de um lançamento casa com o texto, a categoria é preenchida
             sozinha — na importação de planilha e nos lançamentos sem categoria. A regra de

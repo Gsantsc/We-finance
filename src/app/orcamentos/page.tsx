@@ -90,7 +90,7 @@ export default function OrcamentosPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-serif text-3xl text-ink">Orçamentos</h1>
+          <h1 className="font-serif text-3xl text-ink">Orçamento do mês</h1>
           <div className="flex items-center gap-2">
             <select
               value={month}

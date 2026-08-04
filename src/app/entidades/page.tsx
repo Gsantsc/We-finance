@@ -74,21 +74,22 @@ export default function EntidadesPage() {
       <NavBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div className="flex items-center justify-between">
-          <h1 className="font-serif text-3xl text-ink">Entidades</h1>
+          <h1 className="font-serif text-3xl text-ink">De quem é o dinheiro</h1>
           <button
             onClick={() => setShowForm((v) => !v)}
             className="btn-primary"
           >
-            {showForm ? "Cancelar" : "Nova entidade"}
+            {showForm ? "Cancelar" : "Nova divisão"}
           </button>
         </div>
         <p className="text-sm text-sage">
-          Entidades organizam suas contas em Casa (compartilhado), Pessoal (individual) ou PJ (empresa).
-          Crie quantas precisar - por exemplo, um PJ para cada um de vocês.
+          Cada divisão agrupa contas pela origem do dinheiro: <strong>Casa</strong> (o que é dos
+          dois), <strong>Pessoal</strong> (o que é de um só) ou <strong>PJ</strong> (a empresa).
+          Crie quantas precisar — por exemplo, uma PJ para cada um.
         </p>
         <p className="text-sm text-sage">
-          O <strong>dono</strong> decide de quem e' o dinheiro no dashboard: com dono, o valor entra na
-          coluna daquela pessoa; sem dono, entra na coluna do casal.
+          O <strong>dono</strong> decide em que coluna do painel o valor aparece: com dono, entra na
+          coluna daquela pessoa; sem dono, entra na do casal.
         </p>
 
         <ErroBanner mensagem={erro} />
@@ -133,7 +134,7 @@ export default function EntidadesPage() {
               className="h-10 w-full rounded-xl border border-pine/15"
             />
             <button type="submit" className="btn-primary sm:col-span-3">
-              Salvar entidade
+              Salvar divisão
             </button>
           </form>
         )}

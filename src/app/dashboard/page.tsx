@@ -76,7 +76,7 @@ const LINHAS: { rotulo: string; campo: keyof Coluna; dica?: string; destaque?: b
   { rotulo: "VR", campo: "vr", dica: "Entradas em conta Vale refeição" },
   { rotulo: "Dívidas", campo: "dividas", dica: "Parcelas do mês + contas fixas em aberto" },
   { rotulo: "Investimentos", campo: "investido", dica: "Entradas em conta de investimento" },
-  { rotulo: "Sobra", campo: "sobra", dica: "Renda - saidas - contas fixas - aportes", destaque: true },
+  { rotulo: "Sobra", campo: "sobra", dica: "Renda − saídas − contas fixas − aportes", destaque: true },
 ];
 
 function MetricCard(props: { label: string; value: number; detail?: string; tone?: "good" | "bad" }) {
@@ -232,7 +232,7 @@ export default function DashboardPage() {
             href="/contas"
             className="block rounded-xl border border-honey/35 bg-honey/10 px-4 py-3 text-sm font-medium text-honey-deep"
           >
-            {dados.contas.semEntidade} conta(s) sem entidade ficam fora da divisao por pessoa.
+            {dados.contas.semEntidade} conta(s) sem divisão ficam fora do resumo por pessoa.
           </Link>
         )}
 
@@ -252,7 +252,7 @@ export default function DashboardPage() {
                 <MetricCard
                   label="Sobra"
                   value={casal?.sobra ?? 0}
-                  detail="Renda - saidas - contas - aportes"
+                  detail="Renda − saídas − contas − aportes"
                   tone={(casal?.sobra ?? 0) >= 0 ? "good" : "bad"}
                 />
               </section>
@@ -303,7 +303,7 @@ export default function DashboardPage() {
                 </div>
                 {pessoas.length === 0 && (
                   <p className="text-sm text-sage">
-                    Defina o dono das entidades em <Link href="/entidades" className="link-honey">Entidades</Link> para
+                    Defina o dono em <Link href="/entidades" className="link-honey">De quem é o dinheiro</Link> para
                     separar por pessoa.
                   </p>
                 )}
