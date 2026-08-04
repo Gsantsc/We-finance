@@ -11,6 +11,7 @@ import {
   installmentPlanCents,
   nextGoalAmount,
   percentUsado,
+  resumoDoMes,
   repeatInstallmentCents,
   sortBills,
   splitInstallmentCents,
@@ -295,5 +296,49 @@ describe("@regression budgetBarColor", () => {
 
   it("vermelho acima de 100%", () => {
     expect(budgetBarColor(101)).toBe("red");
+  });
+});
+
+describe("@regression resumoDoMes", () => {
+  const base = {
+    receitas: 0, despesas: 0, salario: 0, va: 0, vr: 0,
+    investido: 0, parcelas: 0, contasFixas: 0, aportes: 0,
+  };
+
+  it("as tres colunas fecham com a conta dos cartoes de cima", () => {
+    const e = { ...base, receitas: 10000, despesas: 3000, salario: 8000, va: 500, vr: 400, parcelas: 700, contasFixas: 1200, aportes: 500 };
+    const r = resumoDoMes(e);
+    expect(r.sobra).toBe(e.receitas - e.despesas - e.contasFixas - e.aportes);
+  });
+
+  it("entrada sem categoria nao some: vira Outras entradas e o total bate", () => {
+    const r = resumoDoMes({ ...base, receitas: 10000, salario: 8000 });
+    expect(r.outrasEntradas).toBe(2000);
+    expect(r.entrou).toBe(10000);
+  });
+
+  it("transferencia para investimento nao pode descontar duas vezes", () => {
+    // 1000 saem da corrente e entram na de investimento: sobra tem que ser 0.
+    const r = resumoDoMes({ ...base, receitas: 1000, despesas: 1000, investido: 1000 });
+    expect(r.sobra).toBe(0);
+    expect(r.guardado).toBe(0);
+  });
+
+  it("gasto fora de parcela aparece em Outros gastos", () => {
+    const r = resumoDoMes({ ...base, despesas: 1500, parcelas: 700 });
+    expect(r.outrosGastos).toBe(800);
+    expect(r.saiu).toBe(1500);
+  });
+
+  it("mes vazio nao inventa numero negativo", () => {
+    const r = resumoDoMes(base);
+    expect([r.entrou, r.saiu, r.guardado, r.sobra]).toEqual([0, 0, 0, 0]);
+  });
+
+  it("aporte em meta reduz a sobra, mas nao entra em saiu", () => {
+    const r = resumoDoMes({ ...base, receitas: 5000, salario: 5000, aportes: 800 });
+    expect(r.saiu).toBe(0);
+    expect(r.guardado).toBe(800);
+    expect(r.sobra).toBe(4200);
   });
 });

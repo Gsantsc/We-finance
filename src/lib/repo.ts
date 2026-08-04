@@ -26,6 +26,7 @@ import {
   mesDeHojeSP,
   nextGoalAmount,
   percentUsado,
+  resumoDoMes,
 } from "./rules";
 import { ApiError } from "./errors";
 
@@ -1428,22 +1429,46 @@ export async function dashboardMonth(householdId: string, month: string): Promis
     const receitas = toReais(Number(r.income_cents));
     const despesas = toReais(Number(r.expense_cents));
     const aportesReais = toReais(aportes);
+    const salario = toReais(Number(r.salary_cents));
+    const va = toReais(Number(r.va_cents));
+    const vr = toReais(Number(r.vr_cents));
+    const investido = toReais(Number(r.invested_cents));
+    const parcelas = toReais(Number(r.installments_cents));
+
+    // A algebra vive em rules.ts, testada: entrou - saiu - guardado tem que dar
+    // o mesmo que receitas - despesas - contasFixas - aportes.
+    const { outrasEntradas, outrosGastos, entrou, saiu, guardado, sobra } = resumoDoMes({
+      receitas,
+      despesas,
+      salario,
+      va,
+      vr,
+      investido,
+      parcelas,
+      contasFixas,
+      aportes: aportesReais,
+    });
+
     return {
       key: total ? "casal" : (ownerId ?? "compartilhado"),
       nome: total ? "Casal" : (r.owner_name ?? "Compartilhado"),
       isTotal: total,
-      salario: toReais(Number(r.salary_cents)),
-      va: toReais(Number(r.va_cents)),
-      vr: toReais(Number(r.vr_cents)),
-      parcelas: toReais(Number(r.installments_cents)),
+      salario,
+      va,
+      vr,
+      outrasEntradas,
+      parcelas,
       contasFixas,
-      dividas: toReais(Number(r.installments_cents)) + contasFixas,
-      investido: toReais(Number(r.invested_cents)),
+      outrosGastos,
+      dividas: parcelas + contasFixas,
+      investido,
       aportes: aportesReais,
+      entrou,
+      saiu,
+      guardado,
       receitas,
       despesas,
-      // Sobra = renda - o que sai - contas fixas ainda em aberto - aportes.
-      sobra: receitas - despesas - contasFixas - aportesReais,
+      sobra,
     };
   });
 

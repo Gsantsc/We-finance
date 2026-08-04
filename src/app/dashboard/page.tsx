@@ -7,7 +7,7 @@
 // transacoes e recalculava tudo no cliente, o que ficava lento e podia divergir
 // da tela de lancamentos. Mes ja visitado fica em cache, entao voltar e' instantaneo.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
@@ -24,11 +24,16 @@ type Coluna = {
   salario: number;
   va: number;
   vr: number;
+  outrasEntradas: number;
   parcelas: number;
   contasFixas: number;
+  outrosGastos: number;
   dividas: number;
   investido: number;
   aportes: number;
+  entrou: number;
+  saiu: number;
+  guardado: number;
   receitas: number;
   despesas: number;
   sobra: number;
@@ -68,15 +73,43 @@ function tituloMes(chave: string) {
   return `${nomesMeses[Number(mes) - 1]} de ${ano}`;
 }
 
-// As 6 linhas do resumo objetivo, na ordem em que se le: o que entra, o que
-// compromete, o que sobra.
-const LINHAS: { rotulo: string; campo: keyof Coluna; dica?: string; destaque?: boolean }[] = [
-  { rotulo: "Salário", campo: "salario", dica: "Entradas na categoria Salário" },
-  { rotulo: "VA", campo: "va", dica: "Entradas em conta Vale alimentação" },
-  { rotulo: "VR", campo: "vr", dica: "Entradas em conta Vale refeição" },
-  { rotulo: "Dívidas", campo: "dividas", dica: "Parcelas do mês + contas fixas em aberto" },
-  { rotulo: "Investimentos", campo: "investido", dica: "Entradas em conta de investimento" },
-  { rotulo: "Sobra", campo: "sobra", dica: "Renda − saídas − contas fixas − aportes", destaque: true },
+// A tabela antiga misturava pedacos da receita com coisas de outra natureza e
+// nada somava com nada - nao dava para conferir. Agora sao tres blocos que se
+// somam, cada um com seu subtotal, e a sobra sai da conta dos tres.
+type Linha = { rotulo: string; campo: keyof Coluna; dica: string };
+type Bloco = { titulo: string; linhas: Linha[]; totalCampo: keyof Coluna; totalRotulo: string };
+
+const BLOCOS: Bloco[] = [
+  {
+    titulo: "Entrou",
+    totalCampo: "entrou",
+    totalRotulo: "Total que entrou",
+    linhas: [
+      { rotulo: "Salário", campo: "salario", dica: "Lançamentos de entrada com a categoria Salário" },
+      { rotulo: "VA", campo: "va", dica: "Entradas numa conta do tipo Vale alimentação" },
+      { rotulo: "VR", campo: "vr", dica: "Entradas numa conta do tipo Vale refeição" },
+      { rotulo: "Investimentos", campo: "investido", dica: "Entradas numa conta do tipo Investimento" },
+      { rotulo: "Outras entradas", campo: "outrasEntradas", dica: "Todo o resto que entrou no mês" },
+    ],
+  },
+  {
+    titulo: "Saiu",
+    totalCampo: "saiu",
+    totalRotulo: "Total que saiu",
+    linhas: [
+      { rotulo: "Parcelas", campo: "parcelas", dica: "As parcelas que caem neste mês" },
+      { rotulo: "Contas fixas", campo: "contasFixas", dica: "As recorrentes ainda não marcadas como pagas" },
+      { rotulo: "Outros gastos", campo: "outrosGastos", dica: "Despesas avulsas lançadas no mês" },
+    ],
+  },
+  {
+    titulo: "Guardado",
+    totalCampo: "guardado",
+    totalRotulo: "Total guardado",
+    linhas: [
+      { rotulo: "Aportes em metas", campo: "aportes", dica: "O que você separou para as metas neste mês" },
+    ],
+  },
 ];
 
 function MetricCard(props: { label: string; value: number; detail?: string; tone?: "good" | "bad" }) {
@@ -227,6 +260,27 @@ export default function DashboardPage() {
           </button>
         </section>
 
+        {/* O caso que mais confunde: a pessoa cadastra a conta com o salario no
+            campo de saldo e espera ver o resumo preenchido. Saldo e' uma FOTO
+            (quanto tem hoje); o resumo e' o FILME (o que entrou e saiu no mes).
+            Sem este aviso a tela mostra R$ 0,00 e nao explica por que. */}
+        {dados && !primeiraCarga && casal?.entrou === 0 && dados.contas.patrimonio > 0 && (
+          <div className="rounded-xl border border-honey/35 bg-honey/10 px-4 py-4">
+            <p className="text-sm font-medium text-honey-deep">
+              Nenhuma entrada lançada em {tituloMes(mes).toLowerCase()}.
+            </p>
+            <p className="mt-1.5 text-sm text-ink/75">
+              Você tem <strong>{currency.format(dados.contas.patrimonio)}</strong> somando os saldos
+              das contas, mas saldo é quanto existe <em>hoje</em> — o resumo do mês mostra o que
+              entrou e saiu <em>neste mês</em>. Para o salário aparecer aqui, lance-o como entrada.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link href="/novo" className="btn-primary text-sm">Lançar meu salário</Link>
+              <Link href="/importar" className="btn-ghost text-sm">Ou importar o extrato</Link>
+            </div>
+          </div>
+        )}
+
         {dados && dados.contas.semEntidade > 0 && (
           <Link
             href="/contas"
@@ -260,7 +314,14 @@ export default function DashboardPage() {
               <GraficoEvolucao dados={dados?.evolucao ?? []} />
 
               <section className="space-y-4">
-                <h2 className="eyebrow">Resumo do mês - cada um e o casal</h2>
+                <div>
+                  <h2 className="eyebrow">Resumo do mês</h2>
+                  <p className="mt-1 text-sm text-sage">
+                    Só conta o que foi <strong>lançado</strong> neste mês. Saldo parado em conta não
+                    aparece aqui — ele está em Patrimônio, mais abaixo.
+                  </p>
+                </div>
+
                 <div className="card overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="bg-pine/[0.04] text-left text-sage">
@@ -273,34 +334,67 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {LINHAS.map((linha) => (
-                        <tr
-                          key={linha.campo}
-                          className={`border-t border-pine/8 ${linha.destaque ? "font-semibold" : ""}`}
-                        >
-                          <td className="px-4 py-2">
-                            {linha.rotulo}
-                            {linha.dica && <span className="block text-xs font-normal text-sage">{linha.dica}</span>}
-                          </td>
-                          {pessoas.map((p) => (
-                            <td key={p.key} className="px-4 py-2 text-right tabular-nums">
-                              {currency.format(p[linha.campo] as number)}
+                      {BLOCOS.map((bloco) => (
+                        <Fragment key={bloco.titulo}>
+                          <tr className="border-t border-pine/12 bg-pine/[0.03]">
+                            <td colSpan={pessoas.length + 2} className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-sage">
+                              {bloco.titulo}
                             </td>
+                          </tr>
+                          {bloco.linhas.map((linha) => (
+                            <tr key={linha.campo} className="border-t border-pine/8">
+                              <td className="px-4 py-2 pl-6">
+                                {linha.rotulo}
+                                <span className="block text-xs text-sage">{linha.dica}</span>
+                              </td>
+                              {pessoas.map((p) => (
+                                <td key={p.key} className="px-4 py-2 text-right tabular-nums">
+                                  {currency.format(p[linha.campo] as number)}
+                                </td>
+                              ))}
+                              <td className="px-4 py-2 text-right tabular-nums">
+                                {currency.format((casal?.[linha.campo] as number) ?? 0)}
+                              </td>
+                            </tr>
                           ))}
-                          <td
-                            className={`px-4 py-2 text-right font-semibold tabular-nums ${
-                              linha.destaque
-                                ? (casal?.sobra ?? 0) >= 0 ? "text-pine-600" : "text-clay"
-                                : ""
-                            }`}
-                          >
-                            {currency.format((casal?.[linha.campo] as number) ?? 0)}
-                          </td>
-                        </tr>
+                          <tr className="border-t border-pine/8 font-medium">
+                            <td className="px-4 py-2 pl-6">{bloco.totalRotulo}</td>
+                            {pessoas.map((p) => (
+                              <td key={p.key} className="px-4 py-2 text-right tabular-nums">
+                                {currency.format(p[bloco.totalCampo] as number)}
+                              </td>
+                            ))}
+                            <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                              {currency.format((casal?.[bloco.totalCampo] as number) ?? 0)}
+                            </td>
+                          </tr>
+                        </Fragment>
                       ))}
+
+                      <tr className="border-t-2 border-pine/20 bg-pine/[0.04] font-semibold">
+                        <td className="px-4 py-3">
+                          Sobra
+                          <span className="block text-xs font-normal text-sage">
+                            Entrou − saiu − guardado
+                          </span>
+                        </td>
+                        {pessoas.map((p) => (
+                          <td key={p.key} className="px-4 py-3 text-right tabular-nums">
+                            {currency.format(p.sobra)}
+                          </td>
+                        ))}
+                        <td
+                          className={`px-4 py-3 text-right tabular-nums ${
+                            (casal?.sobra ?? 0) >= 0 ? "text-pine-600" : "text-clay"
+                          }`}
+                        >
+                          {currency.format(casal?.sobra ?? 0)}
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
+
                 {pessoas.length === 0 && (
                   <p className="text-sm text-sage">
                     Defina o dono em <Link href="/entidades" className="link-honey">De quem é o dinheiro</Link> para

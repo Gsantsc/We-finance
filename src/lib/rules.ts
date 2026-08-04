@@ -101,6 +101,40 @@ export function addMonthKey(monthKey: string, k: number): string {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
 }
 
+// As tres colunas do resumo do mes, a partir do que ja foi agregado pelas views.
+//
+// Regra que nao pode quebrar: entrou - saiu - guardado tem que dar o MESMO
+// numero que receitas - despesas - contasFixas - aportes. Se as duas contas
+// divergirem, a tabela para de fechar e o usuario ve uma sobra que nao confere
+// com os cartoes de cima.
+export type ResumoEntrada = {
+  receitas: number;
+  despesas: number;
+  salario: number;
+  va: number;
+  vr: number;
+  investido: number;
+  parcelas: number;
+  contasFixas: number;
+  aportes: number;
+};
+
+export function resumoDoMes(e: ResumoEntrada) {
+  // Sobra da receita depois dos pedacos com nome proprio. Sem esta linha, uma
+  // entrada sem categoria sumia da tabela e o total nao batia com o cartao.
+  const outrasEntradas = Math.max(0, e.receitas - e.salario - e.va - e.vr - e.investido);
+  const outrosGastos = Math.max(0, e.despesas - e.parcelas);
+
+  // Investimento entra em "entrou", nao em "guardado": sem conceito de
+  // transferencia, mandar dinheiro para a conta de investimento vira despesa
+  // numa conta e entrada na outra, e as duas precisam se anular.
+  const entrou = e.salario + e.va + e.vr + e.investido + outrasEntradas;
+  const saiu = e.parcelas + outrosGastos + e.contasFixas;
+  const guardado = e.aportes;
+
+  return { outrasEntradas, outrosGastos, entrou, saiu, guardado, sobra: entrou - saiu - guardado };
+}
+
 export type BillStatus = {
   pagoEsteMes: boolean;
   vencido: boolean;
