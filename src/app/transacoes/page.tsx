@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
 import { formatDateBR, rotuloMesCurto } from "@/lib/formato";
 import {
   dataDeHojeSP,
@@ -14,6 +14,7 @@ import {
   type InstallmentMode,
 } from "@/lib/rules";
 import { SkeletonLinha } from "@/components/Skeleton";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
 import Money from "@/components/Money";
 
 type Category = { id: string; name: string; icon: string };
@@ -56,6 +57,7 @@ function TransacoesLista() {
   const [fim, setFim] = useState(false);
   // Se a pessoa escolher o modo na mao, a categoria para de sobrescrever.
   const [toqueiNoModo, setToqueiNoModo] = useState(false);
+  const [apagandoId, setApagandoId] = useState<string | null>(null);
   const [form, setForm] = useState(formInicial);
 
   // Filtro vindo do painel: clicar numa categoria do grafico abre esta tela ja
@@ -108,6 +110,22 @@ function TransacoesLista() {
   useEffect(() => {
     load();
   }, []);
+
+  // Reaproveita a rota do Bloco 3: escopo "so_esta" apaga apenas esta linha.
+  // Apagar a parcela E as futuras se faz em Contas a pagar, onde a pergunta
+  // sobre escopo cabe no fluxo.
+  async function apagar(t: Transaction) {
+    setApagandoId(t.id);
+    try {
+      await deleteJson(`/api/contas-a-pagar/lancamento?id=${t.id}&escopo=so_esta`);
+      await load();
+      setErro("");
+    } catch (e) {
+      setErro(mensagemDeErro(e));
+    } finally {
+      setApagandoId(null);
+    }
+  }
 
   function resetForm() {
     setToqueiNoModo(false);
@@ -395,9 +413,18 @@ function TransacoesLista() {
                     <Money valor={t.amount} fluxo="auto" />
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <button onClick={() => startEdit(t)} className="link-honey">
-                      Editar
-                    </button>
+                    <AcoesDaLinha
+                      tipo="o lançamento"
+                      nome={t.description}
+                      consequencia={
+                        t.installmentTotal && t.installmentTotal > 1
+                          ? `É a parcela ${t.installmentNumber}/${t.installmentTotal}. Só ela será apagada — para apagar as futuras, use Contas a pagar.`
+                          : "O saldo da conta volta ao que era antes."
+                      }
+                      ocupado={apagandoId === t.id}
+                      aoEditar={() => startEdit(t)}
+                      aoApagar={() => apagar(t)}
+                    />
                   </td>
                 </tr>
               ))}

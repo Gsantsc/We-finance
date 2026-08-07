@@ -6,6 +6,7 @@ import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
 import { currency, formatDateBR } from "@/lib/formato";
 import { SkeletonLinha } from "@/components/Skeleton";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
 import { dataDeHojeSP, lerValorBR } from "@/lib/rules";
 import Money from "@/components/Money";
 
@@ -51,6 +52,7 @@ export default function MetasPage() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [form, setForm] = useState({
     entityId: "",
     name: "",
@@ -82,19 +84,41 @@ export default function MetasPage() {
     load();
   }, []);
 
+  function editar(g: Goal) {
+    setEditandoId(g.id);
+    setForm({
+      entityId: g.entity?.id ?? "",
+      name: g.name,
+      targetAmount: String(g.targetAmount),
+      currentAmount: String(g.currentAmount),
+      monthlyAmount: String(g.monthlyAmount || 0),
+      targetDate: g.targetDate?.slice(0, 10) ?? "",
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm({ entityId: "", name: "", targetAmount: "", currentAmount: "", monthlyAmount: "", targetDate: "" });
+    setShowForm(false);
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     try {
       await postJson("/api/metas", {
+        ...(editandoId ? { id: editandoId } : {}),
         entityId: form.entityId,
         name: form.name,
-        targetAmount: parseFloat(form.targetAmount || "0"),
-        currentAmount: parseFloat(form.currentAmount || "0"),
-        monthlyAmount: parseFloat(form.monthlyAmount || "0"),
+        targetAmount: lerValorBR(form.targetAmount || "0") ?? 0,
+        // Em edição o "já guardado" NÃO vai junto: ele é a soma dos aportes.
+        // Reenviá-lo sobrescreveria o histórico com o valor que estava na tela.
+        ...(editandoId ? {} : { currentAmount: lerValorBR(form.currentAmount || "0") ?? 0 }),
+        monthlyAmount: lerValorBR(form.monthlyAmount || "0") ?? 0,
         targetDate: form.targetDate || null,
       });
-      setForm({ entityId: "", name: "", targetAmount: "", currentAmount: "", monthlyAmount: "", targetDate: "" });
-      setShowForm(false);
+      cancelarEdicao();
       await load();
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -124,11 +148,10 @@ export default function MetasPage() {
     }
   }
 
-  async function remover(id: string, nome: string) {
-    // fetch cru nao levanta em 4xx/5xx: a tela recarregava como se tivesse
-    // apagado, e a meta continuava la. deleteJson passa pelo mesmo unwrap dos
-    // outros verbos.
-    if (!confirm(`Remover a meta "${nome}"? Os aportes registrados vao junto.`)) return;
+  // A confirmacao vive no AcoesDaLinha, para todas as telas perguntarem igual.
+  // fetch cru nao levanta em 4xx/5xx: a tela recarregava como se tivesse
+  // apagado, e a meta continuava la. deleteJson passa pelo mesmo unwrap.
+  async function remover(id: string) {
     try {
       await deleteJson(`/api/metas?id=${id}`);
       await load();
@@ -144,7 +167,7 @@ export default function MetasPage() {
         <div className="flex items-center justify-between">
           <h1 className="font-serif text-3xl text-ink">Metas</h1>
           <button
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => (showForm ? cancelarEdicao() : setShowForm(true))}
             className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova meta"}
@@ -226,7 +249,7 @@ export default function MetasPage() {
               type="submit"
               className="btn-primary sm:col-span-4"
             >
-              Salvar meta
+              {editandoId ? "Salvar alterações" : "Criar meta"}
             </button>
           </form>
         )}
@@ -286,19 +309,20 @@ export default function MetasPage() {
                 {g.targetDate && <span>ate {formatDateBR(g.targetDate)}</span>}
               </div>
 
-              <div className="mt-4 flex items-center gap-3 text-sm">
+              <div className="mt-4 flex items-center justify-between gap-3 text-sm">
                 <button
                   onClick={() => depositar(g.id)}
                   className="rounded-lg bg-honey/15 px-3 py-1.5 font-semibold text-honey-deep hover:bg-honey/25"
                 >
                   Guardar
                 </button>
-                <button
-                  onClick={() => remover(g.id, g.name)}
-                  className="text-sage hover:text-clay"
-                >
-                  remover
-                </button>
+                <AcoesDaLinha
+                  tipo="a meta"
+                  nome={g.name}
+                  consequencia="Os aportes registrados vão junto."
+                  aoEditar={() => editar(g)}
+                  aoApagar={() => remover(g.id)}
+                />
               </div>
             </div>
             );

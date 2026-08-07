@@ -159,6 +159,15 @@ export const transactionCreateSchema = z.object({
 
 // ---------- Regras de categorizacao ----------
 
+export const ruleUpdateSchema = z.object({
+  id,
+  matchType: z.enum(["contains", "starts_with", "regex"]).optional(),
+  pattern: z.string().trim().min(1, "informe o texto").max(200).optional(),
+  categoryId: id.optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
+  active: z.boolean().optional(),
+});
+
 export const ruleCreateSchema = z.object({
   matchType: z.enum(["contains", "starts_with", "regex"]),
   pattern: z.string().trim().min(1, "informe o texto").max(200),

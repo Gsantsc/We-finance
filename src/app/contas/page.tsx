@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
+import { lerValorBR } from "@/lib/rules";
 import Money from "@/components/Money";
 
 type Entity = { id: string; name: string; type: string };
@@ -48,6 +50,40 @@ export default function ContasPage() {
   const [showForm, setShowForm] = useState(false);
   const [erro, setErro] = useState("");
   const [form, setForm] = useState({ name: "", type: "CORRENTE", entityId: "", balance: "" });
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+
+  function editar(a: Account) {
+    setEditandoId(a.id);
+    setForm({
+      name: a.name,
+      type: a.type,
+      entityId: a.entityId ?? "",
+      balance: String(a.balance),
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm({ name: "", type: "CORRENTE", entityId: "", balance: "" });
+    setShowForm(false);
+  }
+
+  async function apagar(a: Account) {
+    setOcupado(a.id);
+    try {
+      await deleteJson(`/api/contas?id=${a.id}`);
+      await load();
+      setErro("");
+    } catch (err) {
+      // Se houver lançamento, o servidor recusa e já explica a saída (arquivar).
+      setErro(mensagemDeErro(err));
+    } finally {
+      setOcupado(null);
+    }
+  }
 
   async function load() {
     try {
@@ -67,18 +103,21 @@ export default function ContasPage() {
     load();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
+  // O mesmo formulario cria e edita, para nao existir uma segunda tela a
+  // aprender so porque a pessoa quer corrigir um nome.
+  async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
     try {
       await postJson("/api/contas", {
+        ...(editandoId ? { id: editandoId } : {}),
         name: form.name,
         type: form.type,
         entityId: form.entityId || null,
-        balance: parseFloat(form.balance || "0"),
+        balance: lerValorBR(form.balance || "0") ?? 0,
       });
-      setForm({ name: "", type: "CORRENTE", entityId: "", balance: "" });
-      setShowForm(false);
+      cancelarEdicao();
       await load();
+      setErro("");
     } catch (err) {
       setErro(mensagemDeErro(err));
     }
@@ -102,7 +141,7 @@ export default function ContasPage() {
         <div className="flex items-center justify-between">
           <h1 className="font-serif text-3xl text-ink">Contas e cartões</h1>
           <button
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => (showForm ? cancelarEdicao() : setShowForm(true))}
             className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova conta manual"}
@@ -113,7 +152,7 @@ export default function ContasPage() {
 
         {showForm && (
           <form
-            onSubmit={handleCreate}
+            onSubmit={handleSalvar}
             className="grid gap-3 card p-5 sm:grid-cols-4"
           >
             <input
@@ -202,21 +241,25 @@ export default function ContasPage() {
                 <th className="px-4 py-2">Divisão</th>
                 <th className="px-4 py-2">Origem</th>
                 <th className="px-4 py-2 text-right">Saldo</th>
+                <th className="px-4 py-2 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
               {accounts.map((a) => (
                 <tr key={a.id} className="border-t border-pine/8">
                   <td className="px-4 py-2 font-medium">{a.name}</td>
-                  <td className="px-4 py-2 text-sage">{a.type}</td>
+                  <td className="px-4 py-2 text-sage">{accountTypeLabel[a.type] ?? a.type}</td>
                   <td className="px-4 py-2 text-sage">{a.entity?.name || "-"}</td>
                   <td className="px-4 py-2 text-sage">{a.isManual ? "Manual" : "Pluggy"}</td>
                   <td className="px-4 py-2 text-right font-medium"><Money valor={a.balance} fluxo="auto" /></td>
+                  <td className="px-4 py-2 text-right">
+                    <AcoesDaLinha tipo="a conta" nome={a.name} ocupado={ocupado === a.id} aoEditar={() => editar(a)} aoApagar={() => apagar(a)} />
+                  </td>
                 </tr>
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-sage">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sage">
                     Nenhuma conta ainda.
                   </td>
                 </tr>

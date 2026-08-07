@@ -29,6 +29,7 @@ import {
   resumoDoMes,
 } from "./rules";
 import { calculatePatrimony, type PatrimonyBreakdown } from "./patrimonio";
+import { podeApagarConta, podeApagarDivisao } from "./exclusao";
 import {
   recorrenciaValeNoMes,
   resumirContas,
@@ -460,6 +461,34 @@ export async function createEntity(householdId: string, e: {
   return shapeEntity(row);
 }
 
+// Divisao so se apaga vazia: com conta dentro, as contas ficariam orfas e o
+// painel perderia a coluna da pessoa sem avisar.
+export async function deleteEntity(householdId: string, id: string): Promise<void> {
+  const [ent] = await sql`
+    SELECT id FROM entities WHERE id = ${id} AND household_id = ${householdId}
+  `;
+  if (!ent) throw new ApiError("Divisão não encontrada", 404);
+
+  const [uso] = await sql`
+    SELECT
+      (SELECT count(*)::int FROM accounts WHERE entity_id = ${id}) AS contas,
+      (SELECT count(*)::int FROM bills    WHERE entity_id = ${id}) AS contas_fixas,
+      (SELECT count(*)::int FROM goals    WHERE entity_id = ${id}) AS metas,
+      (SELECT count(*)::int FROM budgets  WHERE entity_id = ${id}) AS orcamentos
+  `;
+
+  const veredicto = podeApagarDivisao({
+    contas: Number(uso.contas),
+    contasFixas: Number(uso.contas_fixas),
+    metas: Number(uso.metas),
+    orcamentos: Number(uso.orcamentos),
+  });
+  if (!veredicto.podeApagar) {
+    throw new ApiError(`${veredicto.motivo} ${veredicto.saida}`, 409);
+  }
+  await sql`DELETE FROM entities WHERE id = ${id}`;
+}
+
 export async function updateEntity(householdId: string, id: string, patch: Row): Promise<Row> {
   const [cur] = await sql`SELECT * FROM entities WHERE id = ${id} AND household_id = ${householdId}`;
   if (!cur) throw new ApiError("Entidade não encontrada", 404);
@@ -528,6 +557,32 @@ export async function createAccount(householdId: string, a: {
     VALUES (${id}, ${householdId}, ${a.entityId ?? null}, ${a.name}, ${a.type}, ${a.institution ?? null}, ${toCents(a.balance ?? 0)}, 'BRL', true, false, ${ts}, ${ts})`;
   const [row] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
   return shapeAccount(row);
+}
+
+// Apagar conta so quando nada aponta para ela. Com lancamento, a saida certa e'
+// ARQUIVAR: tira da frente e preserva o extrato. Ver src/lib/exclusao.ts.
+export async function deleteAccount(householdId: string, id: string): Promise<void> {
+  const [conta] = await sql`
+    SELECT id FROM accounts WHERE id = ${id} AND household_id = ${householdId}
+  `;
+  if (!conta) throw new ApiError("Conta não encontrada", 404);
+
+  const [uso] = await sql`
+    SELECT
+      (SELECT count(*)::int FROM transactions WHERE account_id = ${id})       AS lancamentos,
+      (SELECT count(*)::int FROM bills WHERE account_id = ${id})              AS contas_fixas,
+      (SELECT count(*)::int FROM installment_plans WHERE account_id = ${id})  AS parcelamentos
+  `;
+
+  const veredicto = podeApagarConta({
+    lancamentos: Number(uso.lancamentos),
+    contasFixas: Number(uso.contas_fixas),
+    parcelamentos: Number(uso.parcelamentos),
+  });
+  if (!veredicto.podeApagar) {
+    throw new ApiError(`${veredicto.motivo} ${veredicto.saida}`, 409);
+  }
+  await sql`DELETE FROM accounts WHERE id = ${id}`;
 }
 
 export async function updateAccount(householdId: string, id: string, patch: Row): Promise<Row> {
@@ -915,6 +970,25 @@ export async function createRule(householdId: string, r: {
 
 export async function setRuleActive(householdId: string, id: string, active: boolean): Promise<void> {
   await sql`UPDATE categorization_rules SET active = ${active} WHERE id = ${id} AND household_id = ${householdId}`;
+}
+
+export async function updateRule(householdId: string, id: string, patch: Row): Promise<Row> {
+  const [cur] = await sql`
+    SELECT * FROM categorization_rules WHERE id = ${id} AND household_id = ${householdId}
+  `;
+  if (!cur) throw new ApiError("Regra não encontrada", 404);
+
+  await sql`
+    UPDATE categorization_rules SET
+      match_type  = ${patch.matchType ?? cur.match_type},
+      pattern     = ${patch.pattern ?? cur.pattern},
+      category_id = ${patch.categoryId ?? cur.category_id},
+      priority    = ${patch.priority === undefined ? cur.priority : patch.priority},
+      active      = ${patch.active === undefined ? cur.active : patch.active}
+    WHERE id = ${id}
+  `;
+  const [row] = await sql`SELECT * FROM categorization_rules WHERE id = ${id}`;
+  return shapeRule(row);
 }
 
 export async function deleteRule(householdId: string, id: string): Promise<void> {

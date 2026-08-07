@@ -46,6 +46,14 @@ export function postJson<T>(url: string, body: unknown): Promise<T> {
   }).then(unwrap);
 }
 
+export function patchJson<T>(url: string, body: unknown): Promise<T> {
+  return fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(unwrap);
+}
+
 // DELETE tambem passa pelo unwrap: fetch cru nao levanta em 4xx/5xx, entao a
 // tela recarregava como se tivesse apagado quando nao apagou.
 export function deleteJson<T>(url: string): Promise<T> {

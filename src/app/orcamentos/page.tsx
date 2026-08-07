@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
 import { currency, nomesMeses } from "@/lib/formato";
-import { budgetBarColor } from "@/lib/rules";
+import { budgetBarColor, lerValorBR } from "@/lib/rules";
 import Money from "@/components/Money";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
 import { formatarDinheiro } from "@/lib/dinheiro";
 
 type Entity = { id: string; name: string };
@@ -31,6 +32,7 @@ export default function OrcamentosPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [month, setMonth] = useState(agora.getMonth() + 1);
   const [year, setYear] = useState(agora.getFullYear());
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [erro, setErro] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ entityId: "", categoryId: "", amount: "" });
@@ -56,6 +58,25 @@ export default function OrcamentosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, year]);
 
+  function editar(b: Budget) {
+    // Orcamento e' upsert por (divisão, categoria, mês): reabrir o formulario
+    // com os mesmos campos e salvar substitui o valor.
+    setEditandoId(b.id);
+    setForm({
+      entityId: b.entity?.id ?? "",
+      categoryId: b.category.id,
+      amount: String(b.amount),
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm({ entityId: "", categoryId: "", amount: "" });
+    setShowForm(false);
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -64,10 +85,9 @@ export default function OrcamentosPage() {
         categoryId: form.categoryId,
         month,
         year,
-        amount: parseFloat(form.amount || "0"),
+        amount: lerValorBR(form.amount || "0") ?? 0,
       });
-      setForm({ entityId: "", categoryId: "", amount: "" });
-      setShowForm(false);
+      cancelarEdicao();
       await load();
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -76,7 +96,9 @@ export default function OrcamentosPage() {
 
   async function remover(id: string) {
     try {
-      await fetch(`/api/orcamentos?id=${id}`, { method: "DELETE" });
+      // fetch cru nao levanta em 4xx/5xx: a tela recarregava como se tivesse
+      // apagado, e o orcamento continuava la.
+      await deleteJson(`/api/orcamentos?id=${id}`);
       await load();
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -117,7 +139,7 @@ export default function OrcamentosPage() {
               ))}
             </select>
             <button
-              onClick={() => setShowForm((v) => !v)}
+              onClick={() => (showForm ? cancelarEdicao() : setShowForm(true))}
               className="btn-primary"
             >
               {showForm ? "Cancelar" : "Novo orçamento"}
@@ -208,12 +230,12 @@ export default function OrcamentosPage() {
                   </h3>
                   <p className="text-xs text-sage">{b.entity?.name}</p>
                 </div>
-                <button
-                  onClick={() => remover(b.id)}
-                  className="text-xs text-sage hover:text-clay"
-                >
-                  remover
-                </button>
+                <AcoesDaLinha
+                  tipo="o orçamento de"
+                  nome={b.category.name}
+                  aoEditar={() => editar(b)}
+                  aoApagar={() => remover(b.id)}
+                />
               </div>
               <div className="mt-3 flex items-baseline justify-between text-sm">
                 <Money valor={b.gasto} fluxo="saida" className="font-medium" />

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { handle, readJson, requireHousehold, validate } from "@/lib/api";
+import { handle, readJson, requireHousehold, validate, ApiError } from "@/lib/api";
 import { accountCreateSchema, accountUpdateSchema } from "@/lib/schemas";
-import { listAccounts, createAccount, updateAccount } from "@/lib/repo";
+import { listAccounts, createAccount, updateAccount, deleteAccount } from "@/lib/repo";
 
 export async function GET() {
   return handle(async () => {
@@ -30,5 +30,17 @@ export async function POST(req: NextRequest) {
       balance: body.balance ?? 0,
       institution: body.institution ?? null,
     });
+  });
+}
+
+// Apagar. As regras de quando isso e seguro estao em src/lib/exclusao.ts, com
+// teste - e a mensagem de recusa diz o que fazer, nao so que deu errado.
+export async function DELETE(req: NextRequest) {
+  return handle(async () => {
+    const { householdId } = await requireHousehold();
+    const id = new URL(req.url).searchParams.get("id");
+    if (!id) throw new ApiError("Informe o que apagar.");
+    await deleteAccount(householdId, id);
+    return { ok: true };
   });
 }

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { handle, readJson, requireHousehold, validate, ApiError } from "@/lib/api";
-import { ruleCreateSchema } from "@/lib/schemas";
-import { listRules, createRule, setRuleActive, deleteRule } from "@/lib/repo";
+import { ruleCreateSchema, ruleUpdateSchema } from "@/lib/schemas";
+import { listRules, createRule, updateRule, setRuleActive, deleteRule } from "@/lib/repo";
 
 // Regras de categorizacao: "descrição contem X -> categoria Y". Rodam no import
 // e no lancamento manual sem categoria, para pre-preencher a categoria.
@@ -13,10 +13,17 @@ export async function GET() {
   });
 }
 
+// Cria, ou atualiza quando vem "id" - mesmo padrão das outras rotas.
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const { householdId } = await requireHousehold();
-    const body = validate(ruleCreateSchema, await readJson(req));
+    const raw = (await readJson(req)) as any;
+
+    if (raw?.id) {
+      const body = validate(ruleUpdateSchema, raw);
+      return updateRule(householdId, body.id, body);
+    }
+    const body = validate(ruleCreateSchema, raw);
     return createRule(householdId, body);
   });
 }

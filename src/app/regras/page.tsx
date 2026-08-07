@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
+import { getJson, postJson, patchJson, deleteJson, mensagemDeErro } from "@/lib/http";
 
 type Category = { id: string; name: string; icon: string };
 type Rule = {
@@ -27,6 +28,25 @@ export default function RegrasPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [erro, setErro] = useState("");
   const [form, setForm] = useState({ matchType: "contains", pattern: "", categoryId: "", priority: "0" });
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+
+  // Edita no MESMO formulario de cima, que ja esta na tela - abrir um segundo
+  // lugar para editar seria pedir para a pessoa reaprender o layout.
+  function editar(r: Rule) {
+    setEditandoId(r.id);
+    setForm({
+      matchType: r.matchType,
+      pattern: r.pattern,
+      categoryId: r.categoryId,
+      priority: String(r.priority),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm({ matchType: "contains", pattern: "", categoryId: "", priority: "0" });
+  }
 
   const catById = new Map(categories.map((c) => [c.id, c]));
 
@@ -79,7 +99,7 @@ export default function RegrasPage() {
 
   async function remover(id: string) {
     try {
-      await fetch(`/api/regras?id=${id}`, { method: "DELETE" });
+      await deleteJson(`/api/regras?id=${id}`);
       await load();
     } catch (err) {
       setErro(mensagemDeErro(err));
@@ -130,7 +150,14 @@ export default function RegrasPage() {
               <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
             ))}
           </select>
-          <button type="submit" className="btn-primary sm:col-span-1">Criar</button>
+          <button type="submit" className="btn-primary sm:col-span-1">
+            {editandoId ? "Salvar" : "Criar"}
+          </button>
+          {editandoId && (
+            <button type="button" onClick={cancelarEdicao} className="btn-ghost sm:col-span-6">
+              Cancelar edição
+            </button>
+          )}
         </form>
 
         <div className="card divide-y divide-pine/8">
@@ -150,9 +177,12 @@ export default function RegrasPage() {
                 <button onClick={() => alternar(r)} className="text-sm font-medium text-pine hover:text-honey-deep">
                   {r.active ? "Desativar" : "Ativar"}
                 </button>
-                <button onClick={() => remover(r.id)} className="text-sm text-sage hover:text-clay">
-                  remover
-                </button>
+                <AcoesDaLinha
+                  tipo="a regra"
+                  nome={r.pattern}
+                  aoEditar={() => editar(r)}
+                  aoApagar={() => remover(r.id)}
+                />
               </div>
             );
           })}

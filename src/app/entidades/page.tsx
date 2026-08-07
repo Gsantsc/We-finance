@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
-import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
+import AcoesDaLinha from "@/components/AcoesDaLinha";
 
 type Entity = {
   id: string;
@@ -27,6 +28,8 @@ export default function EntidadesPage() {
   const [showForm, setShowForm] = useState(false);
   const [erro, setErro] = useState("");
   const [form, setForm] = useState(formVazio);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -57,15 +60,49 @@ export default function EntidadesPage() {
     load();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
+  // O MESMO formulario cria e edita. Abrir uma tela separada para editar
+  // obrigaria a pessoa a reaprender o layout justo quando ela so quer corrigir
+  // uma palavra.
+  async function handleSalvar(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await postJson("/api/entidades", { ...form, ownerId: form.ownerId || null });
-      setForm(formVazio);
-      setShowForm(false);
+      await postJson("/api/entidades", {
+        ...(editandoId ? { id: editandoId } : {}),
+        ...form,
+        ownerId: form.ownerId || null,
+      });
+      cancelarEdicao();
       await load();
+      setErro("");
     } catch (err) {
       setErro(mensagemDeErro(err));
+    }
+  }
+
+  function editar(ent: Entity) {
+    setEditandoId(ent.id);
+    setForm({ name: ent.name, type: ent.type, color: ent.color, ownerId: ent.ownerId ?? "" });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm(formVazio);
+    setShowForm(false);
+  }
+
+  async function apagar(ent: Entity) {
+    setOcupado(ent.id);
+    try {
+      await deleteJson(`/api/entidades?id=${ent.id}`);
+      await load();
+      setErro("");
+    } catch (err) {
+      // A recusa do servidor ja vem explicando o que fazer (ver exclusao.ts).
+      setErro(mensagemDeErro(err));
+    } finally {
+      setOcupado(null);
     }
   }
 
@@ -76,7 +113,7 @@ export default function EntidadesPage() {
         <div className="flex items-center justify-between">
           <h1 className="font-serif text-3xl text-ink">De quem é o dinheiro</h1>
           <button
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => (showForm ? cancelarEdicao() : setShowForm(true))}
             className="btn-primary"
           >
             {showForm ? "Cancelar" : "Nova divisão"}
@@ -96,7 +133,7 @@ export default function EntidadesPage() {
 
         {showForm && (
           <form
-            onSubmit={handleCreate}
+            onSubmit={handleSalvar}
             className="grid gap-3 card p-5 sm:grid-cols-3"
           >
             <input
@@ -134,7 +171,7 @@ export default function EntidadesPage() {
               className="h-10 w-full rounded-xl border border-pine/15"
             />
             <button type="submit" className="btn-primary sm:col-span-3">
-              Salvar divisão
+              {editandoId ? "Salvar alterações" : "Criar divisão"}
             </button>
           </form>
         )}
@@ -162,9 +199,23 @@ export default function EntidadesPage() {
                   ))}
                 </select>
               </label>
-              <p className="mt-2 text-sm text-ink/75">{e.accounts.length} conta(s)</p>
+              <div className="mt-3 flex items-baseline justify-between border-t border-pine/8 pt-2">
+                <span className="text-sm text-ink/75">{e.accounts.length} conta(s)</span>
+                <AcoesDaLinha
+                  tipo="a divisão"
+                  nome={e.name}
+                  ocupado={ocupado === e.id}
+                  aoEditar={() => editar(e)}
+                  aoApagar={() => apagar(e)}
+                />
+              </div>
             </div>
           ))}
+          {entities.length === 0 && (
+            <p className="text-sm text-sage">
+              Nenhuma divisão ainda. Crie uma em &ldquo;Nova divisão&rdquo;.
+            </p>
+          )}
         </div>
       </main>
     </div>

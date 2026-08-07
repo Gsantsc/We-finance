@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { handle, readJson, requireHousehold, validate } from "@/lib/api";
+import { handle, readJson, requireHousehold, validate, ApiError } from "@/lib/api";
 import { entityCreateSchema, entityUpdateSchema } from "@/lib/schemas";
-import { listEntities, createEntity, updateEntity } from "@/lib/repo";
+import { listEntities, createEntity, updateEntity, deleteEntity } from "@/lib/repo";
 
 export async function GET() {
   return handle(async () => {
@@ -28,5 +28,17 @@ export async function POST(req: NextRequest) {
       ownerId: body.ownerId ?? null,
       color: body.color ?? "#6366f1",
     });
+  });
+}
+
+// Apagar. As regras de quando isso e seguro estao em src/lib/exclusao.ts, com
+// teste - e a mensagem de recusa diz o que fazer, nao so que deu errado.
+export async function DELETE(req: NextRequest) {
+  return handle(async () => {
+    const { householdId } = await requireHousehold();
+    const id = new URL(req.url).searchParams.get("id");
+    if (!id) throw new ApiError("Informe o que apagar.");
+    await deleteEntity(householdId, id);
+    return { ok: true };
   });
 }
