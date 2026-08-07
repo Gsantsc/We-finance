@@ -30,6 +30,64 @@ e do celular de qualquer lugar, com login.
 
 ---
 
+## Como os números são calculados
+
+Duas fórmulas sustentam o painel. Se um número parecer errado, é aqui que se confere.
+
+### Patrimônio líquido
+
+```
+Patrimônio líquido = ATIVOS − PASSIVOS
+
+ATIVOS   = saldos positivos das contas (corrente, poupança, dinheiro, VA, VR)
+         + saldos positivos das contas de investimento
+
+PASSIVOS = saldos NEGATIVOS de conta (fatura de cartão, cheque especial)
+         + saldo devedor dos parcelamentos
+         + contas fixas do mês ainda em aberto
+```
+
+**Saldo devedor de um parcelamento = valor da parcela × parcelas que ainda não
+venceram.** Não é o valor original do empréstimo (isso ignora tudo que já foi
+amortizado) nem o total de parcelas (a que já venceu não é mais compromisso
+futuro — ou foi paga, ou virou atraso, mas saiu do passivo).
+
+Conta com saldo negativo é **passivo**, não ativo negativo. Somar tudo num balde
+só daria o mesmo líquido, mas esconderia o tamanho da dívida: quem tem R$ 10.000
+na conta e R$ 9.000 de fatura não tem simplesmente "R$ 1.000" — tem R$ 10.000 de
+ativo e R$ 9.000 de dívida, e isso muda a leitura.
+
+Código: [`src/lib/patrimonio.ts`](src/lib/patrimonio.ts) (função pura, sem I/O) e
+[`tests/unit/patrimonio.test.ts`](tests/unit/patrimonio.test.ts). O card do painel
+abre com o detalhamento item a item, para dar para auditar sem sair da tela.
+
+### Resumo do mês
+
+```
+Sobra = ENTROU − SAIU − GUARDADO
+
+ENTROU   = salário + VA + VR + investimentos + outras entradas   (= todas as receitas)
+SAIU     = parcelas + contas fixas em aberto + outros gastos
+GUARDADO = aportes em metas
+```
+
+O resumo só conta o que foi **lançado** no mês. Saldo parado em conta não aparece
+ali — ele está no patrimônio. Investimento fica dentro de "entrou", e não em
+"guardado", porque o app ainda não tem o conceito de transferência: mandar R$ 1.000
+da conta corrente para a de investimento vira uma despesa numa conta e uma entrada
+na outra, e as duas precisam se anular.
+
+Código: `resumoDoMes` em [`src/lib/rules.ts`](src/lib/rules.ts).
+
+### Dinheiro
+
+Valores são **centavos inteiros** no banco (`bigint`), nunca `float`. O sinal não
+existe no armazenamento: `amount_cents` é sempre positivo e o sentido vem de
+`transactions.type` (`income` / `expense`). O sinal é aplicado uma única vez, na
+exibição — ver [`src/lib/dinheiro.ts`](src/lib/dinheiro.ts).
+
+---
+
 ## 1. Como funciona a organização
 
 Tudo gira em torno de **Entidades**. Uma entidade é um "livro" onde as contas

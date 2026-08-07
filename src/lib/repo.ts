@@ -28,6 +28,7 @@ import {
   percentUsado,
   resumoDoMes,
 } from "./rules";
+import { calculatePatrimony, type PatrimonyBreakdown } from "./patrimonio";
 import { ApiError } from "./errors";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
@@ -1295,6 +1296,41 @@ export async function createGoalContribution(householdId: string, c: {
   };
 }
 
+// ---------- Patrimonio ----------
+
+// Busca os tres lados do patrimonio e delega a CONTA para calculatePatrimony,
+// que e' pura e testada. Aqui so tem I/O.
+export async function patrimonioDaCasa(householdId: string): Promise<PatrimonyBreakdown> {
+  const [contas, parcelamentos, bills] = await Promise.all([
+    sql`SELECT id, name, type, balance FROM accounts
+        WHERE household_id = ${householdId} AND archived = false`,
+    sql`SELECT group_id, descricao, installment_cents, parcelas_restantes
+        FROM v_installment_debt WHERE household_id = ${householdId}`,
+    // So conta fixa AINDA NAO paga neste mes e' compromisso.
+    sql`SELECT id, name, amount, last_paid_at FROM bills WHERE household_id = ${householdId}`,
+  ]);
+
+  const mesCorrente = mesDeHojeSP();
+
+  return calculatePatrimony({
+    contas: contas.map((c) => ({
+      id: c.id,
+      nome: c.name,
+      tipo: c.type,
+      saldoCents: Number(c.balance),
+    })),
+    parcelamentos: parcelamentos.map((p) => ({
+      groupId: p.group_id,
+      descricao: p.descricao,
+      parcelaCents: Number(p.installment_cents),
+      parcelasRestantes: Number(p.parcelas_restantes),
+    })),
+    contasFixas: bills
+      .filter((b) => String(b.last_paid_at ?? "").slice(0, 7) !== mesCorrente)
+      .map((b) => ({ id: b.id, nome: b.name, valorCents: Number(b.amount) })),
+  });
+}
+
 // ---------- Dashboard mes a mes ----------
 //
 // Tudo aqui sai das VIEWS agregadas. O dashboard antigo puxava ate 2000
@@ -1348,7 +1384,7 @@ export async function monthlyEvolution(householdId: string, month: string, meses
 
 // Payload unico do dashboard de um mes. Uma chamada, tudo ja agregado no banco.
 export async function dashboardMonth(householdId: string, month: string): Promise<Row> {
-  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, meses, ultimos] =
+  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, meses, ultimos, patrimonio] =
     await Promise.all([
       sql`
         SELECT o.*, u.name AS owner_name
@@ -1398,6 +1434,7 @@ export async function dashboardMonth(householdId: string, month: string): Promis
       // Do MES selecionado - a lista fica embaixo do seletor, ignorar o filtro
       // ali seria mostrar lancamento de outro mes sob o rotulo deste.
       listTransactions(householdId, { month, limit: 8 }),
+      patrimonioDaCasa(householdId),
     ]);
 
   const aportePorDono = new Map<string | null, number>(
@@ -1522,12 +1559,32 @@ export async function dashboardMonth(householdId: string, month: string): Promis
       targetDate: m.target_date,
     })),
     contas: {
-      patrimonio: toReais(contas.reduce((s, c) => s + Number(c.cents), 0)),
+      // Soma bruta dos saldos. O patrimonio LIQUIDO (com passivos) vem em
+      // `patrimonio`, logo abaixo - este numero fica so como referencia do
+      // quanto existe em conta.
+      saldoEmContas: toReais(contas.reduce((s, c) => s + Number(c.cents), 0)),
       investimentos: toReais(
         contas.filter((c) => c.type === "INVESTIMENTO").reduce((s, c) => s + Number(c.cents), 0)
       ),
       total: contas.reduce((s, c) => s + c.n, 0),
       semEntidade: contas.reduce((s, c) => s + c.sem_entidade, 0),
+    },
+    // Patrimonio LIQUIDO com o detalhamento item a item, para o card poder ser
+    // auditado sem sair da tela. Em reais na borda, como o resto da API.
+    patrimonio: {
+      ativos: toReais(patrimonio.ativosCents),
+      passivos: toReais(patrimonio.passivosCents),
+      liquido: toReais(patrimonio.liquidoCents),
+      itensAtivos: patrimonio.ativos.map((i) => ({
+        rotulo: i.rotulo,
+        valor: toReais(i.valorCents),
+        detalhe: i.detalhe ?? null,
+      })),
+      itensPassivos: patrimonio.passivos.map((i) => ({
+        rotulo: i.rotulo,
+        valor: toReais(i.valorCents),
+        detalhe: i.detalhe ?? null,
+      })),
     },
     bills: mesPassado ? [] : bills.filter((b) => !b.pago),
     ultimosLancamentos: ultimos,

@@ -41,6 +41,8 @@ type Coluna = {
   sobra: number;
 };
 
+type ItemPatrimonio = { rotulo: string; valor: number; detalhe: string | null };
+
 type Meta = {
   id: string;
   nome: string;
@@ -60,7 +62,14 @@ type Dados = {
   evolucao: PontoEvolucao[];
   categorias: { id: string | null; nome: string; icone: string | null; total: number }[];
   metas: Meta[];
-  contas: { patrimonio: number; investimentos: number; total: number; semEntidade: number };
+  contas: { saldoEmContas: number; investimentos: number; total: number; semEntidade: number };
+  patrimonio: {
+    ativos: number;
+    passivos: number;
+    liquido: number;
+    itensAtivos: ItemPatrimonio[];
+    itensPassivos: ItemPatrimonio[];
+  };
   bills: { id: string; name: string; amount: number; dueDay: number }[];
   ultimosLancamentos: any[];
 };
@@ -126,6 +135,91 @@ const BLOCOS: Bloco[] = [
     ],
   },
 ];
+
+// Patrimonio LIQUIDO = ativos − passivos. O card abre porque um numero so nao
+// da para conferir: quem ve "R$ 12.000" precisa poder perguntar "de onde?" sem
+// sair da tela. Cada item que compoe os dois lados aparece aqui.
+function CardPatrimonio({ patrimonio }: { patrimonio?: Dados["patrimonio"] }) {
+  const [aberto, setAberto] = useState(false);
+  const p = patrimonio;
+
+  return (
+    <div className="card p-5">
+      <p className="eyebrow">Patrimônio líquido</p>
+      <p className="mt-2 font-serif text-3xl">
+        <Money valor={p?.liquido ?? 0} fluxo="auto" />
+      </p>
+      <p className="mt-1 text-xs text-sage">
+        <Money valor={p?.ativos ?? 0} fluxo="neutro" semCor /> em ativos −{" "}
+        <Money valor={p?.passivos ?? 0} fluxo="neutro" semCor /> em dívidas
+      </p>
+
+      {p && (p.itensAtivos.length > 0 || p.itensPassivos.length > 0) && (
+        <>
+          <button
+            onClick={() => setAberto((v) => !v)}
+            aria-expanded={aberto}
+            className="link-honey mt-3 text-xs"
+          >
+            {aberto ? "Esconder a conta" : "Ver de onde vem"}
+          </button>
+
+          {aberto && (
+            <div className="mt-3 space-y-3 border-t border-pine/10 pt-3 text-sm">
+              <Lado titulo="Ativos" itens={p.itensAtivos} total={p.ativos} fluxo="entrada" />
+              <Lado titulo="Dívidas" itens={p.itensPassivos} total={p.passivos} fluxo="saida" />
+              <div className="flex items-baseline justify-between border-t border-pine/15 pt-2 font-semibold">
+                <span>Líquido</span>
+                <Money valor={p.liquido} fluxo="auto" />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Lado({
+  titulo,
+  itens,
+  total,
+  fluxo,
+}: {
+  titulo: string;
+  itens: ItemPatrimonio[];
+  total: number;
+  fluxo: Fluxo;
+}) {
+  if (itens.length === 0) {
+    return (
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-sage">{titulo}</p>
+        <p className="mt-1 text-xs text-sage">Nada aqui.</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-sage">{titulo}</p>
+      <ul className="mt-1 space-y-1">
+        {itens.map((i, idx) => (
+          <li key={`${i.rotulo}-${idx}`} className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 flex-1 truncate">
+              {i.rotulo}
+              {i.detalhe && <span className="ml-1.5 text-xs text-sage">{i.detalhe}</span>}
+            </span>
+            <Money valor={i.valor} fluxo={fluxo} />
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 flex items-baseline justify-between border-t border-pine/8 pt-1 font-medium">
+        <span>Total</span>
+        <Money valor={total} fluxo={fluxo} />
+      </p>
+    </div>
+  );
+}
 
 function MetricCard(props: { label: string; value: number; detail?: string; fluxo?: Fluxo }) {
   return (
@@ -280,13 +374,13 @@ export default function DashboardPage() {
             campo de saldo e espera ver o resumo preenchido. Saldo e' uma FOTO
             (quanto tem hoje); o resumo e' o FILME (o que entrou e saiu no mes).
             Sem este aviso a tela mostra R$ 0,00 e nao explica por que. */}
-        {dados && !primeiraCarga && casal?.entrou === 0 && dados.contas.patrimonio > 0 && (
+        {dados && !primeiraCarga && casal?.entrou === 0 && dados.contas.saldoEmContas > 0 && (
           <div className="rounded-xl border border-honey/35 bg-honey/10 px-4 py-4">
             <p className="text-sm font-medium text-honey-deep">
               Nenhuma entrada lançada em {tituloMes(mes).toLowerCase()}.
             </p>
             <p className="mt-1.5 text-sm text-ink/75">
-              Você tem <strong><Money valor={dados.contas.patrimonio} fluxo="neutro" semCor /></strong> somando os saldos
+              Você tem <strong><Money valor={dados.contas.saldoEmContas} fluxo="neutro" semCor /></strong> somando os saldos
               das contas, mas saldo é quanto existe <em>hoje</em> — o resumo do mês mostra o que
               entrou e saiu <em>neste mês</em>. Para o salário aparecer aqui, lance-o como entrada.
             </p>
@@ -492,8 +586,8 @@ export default function DashboardPage() {
               </section>
 
               <section className="grid gap-4 sm:grid-cols-2">
-                <MetricCard label="Patrimônio total" value={dados?.contas.patrimonio ?? 0} detail="Saldo atual das contas" />
-                <MetricCard label="Investimentos" value={dados?.contas.investimentos ?? 0} detail="Saldo em contas de investimento" />
+                <CardPatrimonio patrimonio={dados?.patrimonio} />
+                <MetricCard label="Investimentos" value={dados?.contas.investimentos ?? 0} detail="Saldo em contas de investimento" fluxo="neutro" />
               </section>
 
               <section className="space-y-4">
