@@ -149,10 +149,15 @@ export function addMonthKey(monthKey: string, k: number): string {
 
 // As tres colunas do resumo do mes, a partir do que ja foi agregado pelas views.
 //
-// Regra que nao pode quebrar: entrou - saiu - guardado tem que dar o MESMO
-// numero que receitas - despesas - contasFixas - aportes. Se as duas contas
-// divergirem, a tabela para de fechar e o usuario ve uma sobra que nao confere
-// com os cartoes de cima.
+// REGRA CENTRAL: parcelas, contasFixas e outrosGastos sao FATIAS de `despesas`,
+// nunca parcelas somadas a ela. Depois que a conta fixa passou a virar
+// lancamento (Bloco 3), ela ja esta dentro de `despesas` - somar a tabela bills
+// por cima contava a MESMA conta duas vezes. Era isso que fazia setembro ter
+// R$ 4.328,50 de despesa e R$ 7.785,00 de "saiu": a diferenca era exatamente a
+// soma das contas fixas, cobrada em dobro.
+//
+// Por isso `saiu` e' simplesmente `despesas`, e as tres linhas existem so para
+// explicar de onde ela vem.
 export type ResumoEntrada = {
   receitas: number;
   despesas: number;
@@ -160,7 +165,9 @@ export type ResumoEntrada = {
   va: number;
   vr: number;
   investido: number;
+  /** Fatia de `despesas` que veio de parcelamento. */
   parcelas: number;
+  /** Fatia de `despesas` que veio de conta fixa (lancamento com bill_id). */
   contasFixas: number;
   aportes: number;
 };
@@ -169,13 +176,14 @@ export function resumoDoMes(e: ResumoEntrada) {
   // Sobra da receita depois dos pedacos com nome proprio. Sem esta linha, uma
   // entrada sem categoria sumia da tabela e o total nao batia com o cartao.
   const outrasEntradas = Math.max(0, e.receitas - e.salario - e.va - e.vr - e.investido);
-  const outrosGastos = Math.max(0, e.despesas - e.parcelas);
+  // O que sobra da despesa depois de tirar as duas fatias identificadas.
+  const outrosGastos = Math.max(0, e.despesas - e.parcelas - e.contasFixas);
 
   // Investimento entra em "entrou", nao em "guardado": sem conceito de
   // transferencia, mandar dinheiro para a conta de investimento vira despesa
   // numa conta e entrada na outra, e as duas precisam se anular.
   const entrou = e.salario + e.va + e.vr + e.investido + outrasEntradas;
-  const saiu = e.parcelas + outrosGastos + e.contasFixas;
+  const saiu = e.parcelas + e.contasFixas + outrosGastos; // === e.despesas
   const guardado = e.aportes;
 
   return { outrasEntradas, outrosGastos, entrou, saiu, guardado, sobra: entrou - saiu - guardado };

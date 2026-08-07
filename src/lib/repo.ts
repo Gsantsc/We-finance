@@ -1436,12 +1436,25 @@ export async function gerarContasFixasDoMes(
   householdId: string,
   month: string
 ): Promise<{ criadas: number; semConta: string[] }> {
+  // A conta de destino define DE QUEM e' a despesa, porque o dono vem por
+  // transactions -> accounts -> entities.owner_id.
+  //
+  // O fallback antigo pegava "a primeira conta da casa", ignorando a divisao da
+  // conta fixa. Resultado: Condominio e Luz, que sao da Thamires, iam parar na
+  // conta do Gabriel e apareciam como dele. Agora o fallback procura uma conta
+  // DA MESMA DIVISAO da conta fixa; so se nao houver nenhuma e' que cai na
+  // primeira da casa.
   const bills = await sql`
-    SELECT b.*, coalesce(b.account_id, (
-      SELECT a.id FROM accounts a
-      WHERE a.household_id = ${householdId} AND a.archived = false
-      ORDER BY a.created_at ASC LIMIT 1
-    )) AS conta_destino
+    SELECT b.*, coalesce(
+      b.account_id,
+      (SELECT a.id FROM accounts a
+       WHERE a.household_id = ${householdId} AND a.archived = false
+         AND a.entity_id = b.entity_id
+       ORDER BY a.created_at ASC LIMIT 1),
+      (SELECT a.id FROM accounts a
+       WHERE a.household_id = ${householdId} AND a.archived = false
+       ORDER BY a.created_at ASC LIMIT 1)
+    ) AS conta_destino
     FROM bills b
     WHERE b.household_id = ${householdId}
       AND b.ativa = true
@@ -1805,7 +1818,7 @@ export async function monthlyEvolution(householdId: string, month: string, meses
 
 // Payload unico do dashboard de um mes. Uma chamada, tudo ja agregado no banco.
 export async function dashboardMonth(householdId: string, month: string): Promise<Row> {
-  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, projecao, meses, ultimos, patrimonio] =
+  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, projecao, meses, ultimos, patrimonio, fixasRows] =
     await Promise.all([
       sql`
         SELECT o.*, u.name AS owner_name
@@ -1865,6 +1878,17 @@ export async function dashboardMonth(householdId: string, month: string): Promis
       // ali seria mostrar lancamento de outro mes sob o rotulo deste.
       listTransactions(householdId, { month, limit: 8 }),
       patrimonioDaCasa(householdId),
+      // Quanto das despesas do mes veio de CONTA FIXA, por dono. E' uma fatia de
+      // `despesas`, nao um valor a somar - ver o comentario em resumoDoMes.
+      sql`
+        SELECT e.owner_id, sum(t.amount_cents)::bigint AS cents
+        FROM transactions t
+        JOIN accounts a ON a.id = t.account_id
+        LEFT JOIN entities e ON e.id = a.entity_id
+        WHERE a.household_id = ${householdId} AND t.type = 'expense'
+          AND t.bill_id IS NOT NULL AND substr(t.date, 1, 7) = ${month}
+        GROUP BY e.owner_id
+      `,
     ]);
 
   const aportePorDono = new Map<string | null, number>(
@@ -1891,17 +1915,24 @@ export async function dashboardMonth(householdId: string, month: string): Promis
     pago: mesCorrente ? String(b.last_paid_at ?? "").slice(0, 7) === month : false,
   }));
 
-  function billsDe(ownerId: string | null, todos: boolean) {
-    if (mesPassado) return 0;
-    return bills
-      .filter((b) => (todos ? true : b.ownerId === ownerId))
-      .reduce((s, b) => s + (b.pago ? 0 : b.amount), 0);
+  // Quanto das DESPESAS DO LEDGER veio de conta fixa, por dono.
+  //
+  // Antes este numero saia da tabela bills e era SOMADO a despesas. Desde que a
+  // conta fixa virou lancamento, ela ja esta dentro de despesas - somar por cima
+  // cobrava a mesma conta duas vezes (setembro: 4.328,50 de despesa virava
+  // 7.785,00 de "saiu", a diferenca sendo exatamente as contas fixas).
+  //
+  // Agora e' uma FATIA: sai do proprio ledger, filtrando bill_id.
+  const fixasPorDono = new Map<string | null, number>();
+  for (const f of fixasRows) {
+    fixasPorDono.set(f.owner_id ?? null, Number(f.cents));
   }
+  const fixasTotal = fixasRows.reduce((s, f) => s + Number(f.cents), 0);
 
   const colunas = overviewRows.map((r) => {
     const total = r.is_household_total === true;
     const ownerId = total ? null : r.owner_id;
-    const contasFixas = billsDe(ownerId, total);
+    const contasFixas = toReais(total ? fixasTotal : (fixasPorDono.get(ownerId) ?? 0));
     const aportes = total
       ? Array.from(aportePorDono.values()).reduce((s, v) => s + v, 0)
       : (aportePorDono.get(ownerId) ?? 0);

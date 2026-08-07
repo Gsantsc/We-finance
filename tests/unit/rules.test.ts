@@ -310,7 +310,31 @@ describe("@regression resumoDoMes", () => {
   it("as tres colunas fecham com a conta dos cartoes de cima", () => {
     const e = { ...base, receitas: 10000, despesas: 3000, salario: 8000, va: 500, vr: 400, parcelas: 700, contasFixas: 1200, aportes: 500 };
     const r = resumoDoMes(e);
-    expect(r.sobra).toBe(e.receitas - e.despesas - e.contasFixas - e.aportes);
+    expect(r.sobra).toBe(e.receitas - e.despesas - e.aportes);
+  });
+
+  it("conta fixa NAO e' cobrada duas vezes: ela ja esta dentro de despesas", () => {
+    // O bug real: setembro tinha 4.328,50 de despesa e 7.785,00 de "saiu" - a
+    // diferenca era a soma das contas fixas, somada por cima do que ja estava
+    // no ledger depois que elas viraram lancamento.
+    const r = resumoDoMes({ ...base, despesas: 432850, parcelas: 87200, contasFixas: 345650 });
+    expect(r.saiu).toBe(432850);
+    expect(r.outrosGastos).toBe(0);
+    expect(r.sobra).toBe(-432850);
+  });
+
+  it("saiu e' SEMPRE igual a despesas - as tres linhas so explicam a origem", () => {
+    const casos = [
+      { despesas: 1000, parcelas: 300, contasFixas: 200 },
+      { despesas: 5000, parcelas: 0, contasFixas: 5000 },
+      { despesas: 900, parcelas: 900, contasFixas: 0 },
+      { despesas: 0, parcelas: 0, contasFixas: 0 },
+    ];
+    for (const c of casos) {
+      const r = resumoDoMes({ ...base, ...c });
+      expect(r.saiu).toBe(c.despesas);
+      expect(c.parcelas + c.contasFixas + r.outrosGastos).toBe(c.despesas);
+    }
   });
 
   it("entrada sem categoria nao some: vira Outras entradas e o total bate", () => {
