@@ -9,6 +9,8 @@ import {
   budgetBarColor,
   goalPercent,
   installmentPlanCents,
+  modoPadraoDaCategoria,
+  resumirParcelamento,
   nextGoalAmount,
   percentUsado,
   resumoDoMes,
@@ -340,5 +342,74 @@ describe("@regression resumoDoMes", () => {
     expect(r.saiu).toBe(0);
     expect(r.guardado).toBe(800);
     expect(r.sobra).toBe(4200);
+  });
+});
+
+describe("@regression modoPadraoDaCategoria", () => {
+  it("emprestimo e financiamento nascem em PARCELA FIXA - dividir ali e' o bug", () => {
+    for (const c of ["Empréstimo", "Emprestimo", "EMPRÉSTIMO", "Financiamento", "Consórcio"]) {
+      expect(modoPadraoDaCategoria(c)).toBe("fixed");
+    }
+  });
+
+  it("compra comum continua dividindo o total", () => {
+    for (const c of ["Compras", "Alimentação", "Moradia", "Lazer"]) {
+      expect(modoPadraoDaCategoria(c)).toBe("split");
+    }
+  });
+
+  it("pega a palavra dentro de um nome maior", () => {
+    expect(modoPadraoDaCategoria("Empréstimo consignado")).toBe("fixed");
+    expect(modoPadraoDaCategoria("Financiamento do carro")).toBe("fixed");
+  });
+
+  it("sem categoria, o default e' dividir", () => {
+    expect(modoPadraoDaCategoria(null)).toBe("split");
+    expect(modoPadraoDaCategoria(undefined)).toBe("split");
+    expect(modoPadraoDaCategoria("")).toBe("split");
+  });
+});
+
+describe("@regression resumirParcelamento", () => {
+  it("emprestimo: 715 em 48x da 48 parcelas de 715 e total de 34.320", () => {
+    const r = resumirParcelamento(71500, 48, "fixed", "2026-08");
+    expect(r.primeiraCents).toBe(71500);
+    expect(r.ultimaCents).toBe(71500);
+    expect(r.totalCents).toBe(3432000);
+    expect(r.ultimoMes).toBe("2030-07");
+    expect(r.ultimaDiferente).toBe(false);
+  });
+
+  it("compra: 1200 em 12x da 12 parcelas de 100 e total de 1200", () => {
+    const r = resumirParcelamento(120000, 12, "split", "2026-08");
+    expect(r.primeiraCents).toBe(10000);
+    expect(r.totalCents).toBe(120000);
+    expect(r.ultimoMes).toBe("2027-07");
+  });
+
+  it("o resto da divisao vai para a ultima parcela e o total continua exato", () => {
+    const r = resumirParcelamento(100000, 3, "split", "2026-01");
+    expect(r.primeiraCents).toBe(33333);
+    expect(r.ultimaCents).toBe(33334);
+    expect(r.totalCents).toBe(100000);
+    expect(r.ultimaDiferente).toBe(true);
+  });
+
+  it("mesmo valor e mesmo N, os dois modos separam quase 34 mil reais", () => {
+    const fixo = resumirParcelamento(71500, 48, "fixed", "2026-08");
+    const dividido = resumirParcelamento(71500, 48, "split", "2026-08");
+    expect(fixo.totalCents).toBe(3432000);
+    expect(dividido.totalCents).toBe(71500);
+    expect(fixo.totalCents - dividido.totalCents).toBe(3360500);
+  });
+
+  it("uma parcela so termina no proprio mes", () => {
+    const r = resumirParcelamento(50000, 1, "fixed", "2026-08");
+    expect(r.ultimoMes).toBe("2026-08");
+    expect(r.totalCents).toBe(50000);
+  });
+
+  it("aceita a data completa e devolve a competencia final", () => {
+    expect(resumirParcelamento(10000, 6, "fixed", "2026-11-30").ultimoMes).toBe("2027-04");
   });
 });

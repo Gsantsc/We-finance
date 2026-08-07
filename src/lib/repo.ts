@@ -785,6 +785,8 @@ export async function createInstallmentPurchase(householdId: string, t: {
   date: string;
   categoryId?: string | null;
   createdById?: string | null;
+  interestRateBps?: number | null;
+  creditor?: string | null;
 }): Promise<{ groupId: string; count: number; installmentCents: number[]; totalCents: number }> {
   await assertAccountInHousehold(householdId, t.accountId);
   const n = Math.max(2, Math.min(360, Math.trunc(t.installments)));
@@ -792,19 +794,29 @@ export async function createInstallmentPurchase(householdId: string, t: {
   const parts = installmentPlanCents(toCents(Math.abs(t.amount)), n, t.mode);
   const baseDate = toDateOnly(t.date);
   const categoryId = t.categoryId ?? (await ruleCategoryFor(householdId, t.description));
+  const totalCents = parts.reduce((s, x) => s + x, 0);
+  const primeiroMes = baseDate.slice(0, 7);
+
   await inTransaction(async (tx) => {
     for (let i = 0; i < n; i++) {
       await tx`INSERT INTO transactions
         (id, account_id, category_id, description, type, amount_cents, date, source, installment_group_id, installment_number, installment_total, is_manual, created_by_id, created_at)
         VALUES (${newId()}, ${t.accountId}, ${categoryId}, ${t.description}, 'expense', ${parts[i]}, ${addMonths(baseDate, i)}, 'manual', ${groupId}, ${i + 1}, ${n}, true, ${t.createdById ?? null}, ${nowIso()})`;
     }
+    // O plano descreve o ACORDO; as parcelas continuam sendo lancamentos comuns.
+    // Sem ele, juros e credor teriam que ser repetidos nas N linhas e "quanto
+    // ainda devo" exigiria varrer todas elas (ver v_installment_debt).
+    await tx`INSERT INTO installment_plans
+      (id, household_id, group_id, descricao, modo, installment_cents, total_cents,
+       installments_total, first_month, last_month, interest_rate_bps, creditor,
+       category_id, account_id, created_by_id)
+      VALUES (${newId()}, ${householdId}, ${groupId}, ${t.description}, ${t.mode},
+              ${parts[0]}, ${totalCents}, ${n}, ${primeiroMes}, ${addMonthKey(primeiroMes, n - 1)},
+              ${t.interestRateBps ?? null}, ${t.creditor ?? null},
+              ${categoryId}, ${t.accountId}, ${t.createdById ?? null})`;
   });
-  return {
-    groupId,
-    count: n,
-    installmentCents: parts,
-    totalCents: parts.reduce((s, x) => s + x, 0),
-  };
+
+  return { groupId, count: n, installmentCents: parts, totalCents };
 }
 
 export async function updateTransaction(householdId: string, id: string, patch: Row): Promise<Row> {

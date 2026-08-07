@@ -5,8 +5,13 @@ import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
-import { formatDateBR } from "@/lib/formato";
-import { dataDeHojeSP, installmentPlanCents, type InstallmentMode } from "@/lib/rules";
+import { formatDateBR, rotuloMesCurto } from "@/lib/formato";
+import {
+  dataDeHojeSP,
+  modoPadraoDaCategoria,
+  resumirParcelamento,
+  type InstallmentMode,
+} from "@/lib/rules";
 import { SkeletonLinha } from "@/components/Skeleton";
 import Money from "@/components/Money";
 
@@ -23,7 +28,6 @@ type Transaction = {
   installmentTotal?: number | null;
 };
 
-const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const formInicial = () => ({
   accountId: "",
   categoryId: "",
@@ -49,6 +53,8 @@ export default function TransacoesPage() {
   const [carregandoMais, setCarregandoMais] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [fim, setFim] = useState(false);
+  // Se a pessoa escolher o modo na mao, a categoria para de sobrescrever.
+  const [toqueiNoModo, setToqueiNoModo] = useState(false);
   const [form, setForm] = useState(formInicial);
 
   // Pagina o historico: carrega uma janela e vai buscando o resto sob demanda,
@@ -92,6 +98,7 @@ export default function TransacoesPage() {
   }, []);
 
   function resetForm() {
+    setToqueiNoModo(false);
     setForm(formInicial());
     setEditingId(null);
     setShowForm(false);
@@ -155,8 +162,20 @@ export default function TransacoesPage() {
   );
   const previa =
     !editingId && parcelas > 1 && centavosDigitados > 0
-      ? installmentPlanCents(centavosDigitados, parcelas, form.installmentMode)
+      ? resumirParcelamento(centavosDigitados, parcelas, form.installmentMode, form.date)
       : null;
+
+  // Trocar para Empréstimo/Financiamento muda o modo sozinho: ali, dividir o
+  // valor e' o erro que originou este bloco. Se a pessoa mexeu no modo na mao,
+  // a escolha dela manda - por isso o toqueiNoModo.
+  function trocarCategoria(categoryId: string) {
+    const nome = categories.find((c) => c.id === categoryId)?.name;
+    setForm((f) => ({
+      ...f,
+      categoryId,
+      installmentMode: toqueiNoModo ? f.installmentMode : modoPadraoDaCategoria(nome),
+    }));
+  }
 
   return (
     <div>
@@ -195,7 +214,7 @@ export default function TransacoesPage() {
             </select>
             <select
               value={form.categoryId}
-              onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+              onChange={(e) => trocarCategoria(e.target.value)}
               className="input"
             >
               <option value="">Sem categoria</option>
@@ -257,9 +276,9 @@ export default function TransacoesPage() {
                       name="installmentMode"
                       value="fixed"
                       checked={form.installmentMode === "fixed"}
-                      onChange={() => setForm({ ...form, installmentMode: "fixed" })}
+                      onChange={() => { setToqueiNoModo(true); setForm({ ...form, installmentMode: "fixed" }); }}
                     />
-                    Parcela fixa / emprestimo (valor x {parcelas})
+                    Parcela fixa / empréstimo (valor × {parcelas})
                   </label>
                   <label className="flex items-center gap-2">
                     <input
@@ -267,7 +286,7 @@ export default function TransacoesPage() {
                       name="installmentMode"
                       value="split"
                       checked={form.installmentMode === "split"}
-                      onChange={() => setForm({ ...form, installmentMode: "split" })}
+                      onChange={() => { setToqueiNoModo(true); setForm({ ...form, installmentMode: "split" }); }}
                     />
                     Compra em {parcelas}x (dividir o total)
                   </label>
@@ -275,17 +294,31 @@ export default function TransacoesPage() {
               </fieldset>
             )}
             {previa && (
-              <p className="text-xs text-sage sm:col-span-3">
-                Vira {parcelas} lancamentos mensais a partir da data:{" "}
-                <strong>
-                  {parcelas}x de <Money valor={previa[0] / 100} fluxo="neutro" semCor />
-                </strong>
-                {previa[parcelas - 1] !== previa[0] && (
-                  <> (a última de <Money valor={previa[parcelas - 1] / 100} fluxo="neutro" semCor />)</>
-                )}
-                {" — total "}
-                <Money valor={previa.reduce((s, x) => s + x, 0) / 100} fluxo="neutro" semCor />.
-              </p>
+              <div className="rounded-xl border border-pine/15 bg-pine/[0.03] px-4 py-3 text-sm sm:col-span-3">
+                <p className="text-ink">
+                  <strong>
+                    {previa.parcelas} parcelas de{" "}
+                    <Money valor={previa.primeiraCents / 100} fluxo="neutro" semCor />
+                  </strong>
+                  {previa.ultimaDiferente && (
+                    <>
+                      {" "}(a última de{" "}
+                      <Money valor={previa.ultimaCents / 100} fluxo="neutro" semCor />)
+                    </>
+                  )}
+                  {" — total "}
+                  <strong>
+                    <Money valor={previa.totalCents / 100} fluxo="neutro" semCor />
+                  </strong>
+                  {" — termina em "}
+                  <strong>{rotuloMesCurto(previa.ultimoMes)}</strong>
+                </p>
+                <p className="mt-1 text-xs text-sage">
+                  {form.installmentMode === "fixed"
+                    ? "O valor digitado é o de CADA parcela."
+                    : "O valor digitado é o TOTAL, dividido nas parcelas."}
+                </p>
+              </div>
             )}
             <button type="submit" disabled={enviando} className="btn-primary sm:col-span-3 disabled:opacity-60">
               {enviando

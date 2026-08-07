@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
         amount: body.amount,
         installments: body.installments,
         mode: body.installmentMode ?? "fixed",
+        interestRateBps: body.interestRateBps ?? null,
+        creditor: body.creditor ?? null,
         date: body.date,
         categoryId: body.categoryId ?? null,
         createdById: session.user?.id ?? null,

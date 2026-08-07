@@ -151,6 +151,10 @@ export const transactionCreateSchema = z.object({
   // parcela e o total e' amount x n. Ausente = "fixed".
   installments: z.number().int().min(1).max(360).optional(),
   installmentMode: installmentModeSchema.optional(),
+  // Só fazem sentido em empréstimo/financiamento; ficam no plano, não na parcela.
+  // Juros em pontos-base para não guardar dinheiro/taxa em float: 1,99% a.m. = 199.
+  interestRateBps: z.number().int().min(0).max(100000).nullish(),
+  creditor: z.string().trim().max(120).nullish(),
 });
 
 // ---------- Regras de categorizacao ----------

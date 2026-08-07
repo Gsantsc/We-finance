@@ -34,6 +34,52 @@ export function installmentPlanCents(
     : repeatInstallmentCents(amountCents, n);
 }
 
+// Categorias em que dividir o valor esta ERRADO por definicao. Quem digita
+// "715 em 48x" num emprestimo quer 48 parcelas DE 715, nunca 48 de 14,90 - e foi
+// exatamente esse o bug relatado. O default do formulario sai daqui, entao a
+// pessoa nao precisa saber que existe um modo para acertar.
+const CATEGORIAS_PARCELA_FIXA = ["emprestimo", "financiamento", "consorcio"];
+
+export function modoPadraoDaCategoria(nomeCategoria?: string | null): InstallmentMode {
+  if (!nomeCategoria) return "split";
+  const normalizado = nomeCategoria
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // tira os acentos combinantes
+    .toLowerCase();
+  return CATEGORIAS_PARCELA_FIXA.some((c) => normalizado.includes(c)) ? "fixed" : "split";
+}
+
+export type ResumoParcelamento = {
+  parcelas: number;
+  primeiraCents: number;
+  ultimaCents: number;
+  totalCents: number;
+  /** "YYYY-MM" da ultima competencia. */
+  ultimoMes: string;
+  /** true quando o resto da divisao caiu na ultima parcela. */
+  ultimaDiferente: boolean;
+};
+
+// O que o formulario mostra ANTES de gravar. Existe para o usuario conferir a
+// interpretacao do valor: os dois modos partem do mesmo "715" e "48x" e chegam
+// a totais que diferem em quase 34 mil reais.
+export function resumirParcelamento(
+  amountCents: number,
+  n: number,
+  mode: InstallmentMode,
+  primeiraData: string
+): ResumoParcelamento {
+  const partes = installmentPlanCents(amountCents, n, mode);
+  return {
+    parcelas: n,
+    primeiraCents: partes[0],
+    ultimaCents: partes[n - 1],
+    totalCents: partes.reduce((s, x) => s + x, 0),
+    ultimoMes: addMonthKey(primeiraData, n - 1),
+    ultimaDiferente: partes[n - 1] !== partes[0],
+  };
+}
+
 // Soma k meses a uma data "YYYY-MM-DD" mantendo o dia (com clamp para o ultimo
 // dia do mes, ex. 31/01 + 1 mes -> 28/02). So string, sem fuso.
 export function addMonths(dateOnly: string, k: number): string {
