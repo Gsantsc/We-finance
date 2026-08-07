@@ -6,9 +6,11 @@ import { useSearchParams } from "next/navigation";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
-import { formatDateBR, rotuloMesCurto } from "@/lib/formato";
+import { formatDateBR, nomesMeses, rotuloMesCurto } from "@/lib/formato";
 import {
+  addMonthKey,
   dataDeHojeSP,
+  mesDeHojeSP,
   modoPadraoDaCategoria,
   resumirParcelamento,
   type InstallmentMode,
@@ -42,6 +44,11 @@ const formInicial = () => ({
   installmentMode: "fixed" as InstallmentMode,
 });
 
+function tituloMes(chave: string) {
+  const [ano, mes] = chave.split("-");
+  return `${nomesMeses[Number(mes) - 1]} de ${ano}`;
+}
+
 const PAGINA = 50;
 
 function TransacoesLista() {
@@ -60,15 +67,20 @@ function TransacoesLista() {
   const [apagandoId, setApagandoId] = useState<string | null>(null);
   const [form, setForm] = useState(formInicial);
 
-  // Filtro vindo do painel: clicar numa categoria do grafico abre esta tela ja
-  // recortada naquele mes e categoria.
+  // A tela abre no MES ATUAL, nao no historico inteiro. Uma lista corrida de
+  // todos os lancamentos nao responde "o que aconteceu neste mes" - que e' a
+  // pergunta que se faz aqui, e a mesma do painel. O seletor e' o do painel.
+  //
+  // A URL manda quando vem de fora (clique numa categoria do grafico); dentro da
+  // tela, as setas mudam o mes.
   const params = useSearchParams();
-  const filtroMes = params.get("mes") ?? "";
   const filtroCategoria = params.get("categoria") ?? "";
+  const [mes, setMes] = useState(() => params.get("mes") || mesDeHojeSP());
+  const [verTudo, setVerTudo] = useState(false);
+
   const qs =
-    (filtroMes ? `&mes=${filtroMes}` : "") +
+    (verTudo ? "" : `&mes=${mes}`) +
     (filtroCategoria ? `&categoryId=${filtroCategoria}` : "");
-  const filtrando = Boolean(filtroMes || filtroCategoria);
   const nomeCategoriaFiltrada = categories.find((c) => c.id === filtroCategoria)?.name;
 
   // Pagina o historico: carrega uma janela e vai buscando o resto sob demanda,
@@ -107,9 +119,12 @@ function TransacoesLista() {
     }
   }
 
+  // Recarrega ao trocar de mes, ao ligar "ver tudo" e ao mudar a categoria.
   useEffect(() => {
+    setCarregando(true);
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mes, verTudo, filtroCategoria]);
 
   // Reaproveita a rota do Bloco 3: escopo "so_esta" apaga apenas esta linha.
   // Apagar a parcela E as futuras se faz em Contas a pagar, onde a pergunta
@@ -224,16 +239,50 @@ function TransacoesLista() {
 
         <ErroBanner mensagem={erro} />
 
-        {/* Recorte veio do painel: precisa ficar visivel, senao a lista parece
-            incompleta e a pessoa acha que perdeu lancamento. */}
-        {filtrando && (
+        {/* Mesma navegacao do painel e de contas a pagar: quem aprendeu num
+            lugar nao precisa reaprender aqui. */}
+        <section className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => { setVerTudo(false); setMes((m) => addMonthKey(m, -1)); }}
+            className="btn-ghost"
+            aria-label="Mês anterior"
+            disabled={verTudo}
+          >
+            ‹
+          </button>
+          <span className="min-w-[150px] text-center font-medium text-ink">
+            {verTudo ? "Todos os meses" : tituloMes(mes)}
+          </span>
+          <button
+            onClick={() => { setVerTudo(false); setMes((m) => addMonthKey(m, 1)); }}
+            className="btn-ghost"
+            aria-label="Próximo mês"
+            disabled={verTudo}
+          >
+            ›
+          </button>
+
+          {!verTudo && mes !== mesDeHojeSP() && (
+            <button onClick={() => setMes(mesDeHojeSP())} className="link-honey text-sm">
+              voltar para o mês atual
+            </button>
+          )}
+          <button
+            onClick={() => setVerTudo((v) => !v)}
+            className="btn-ghost text-sm"
+          >
+            {verTudo ? "Ver por mês" : "Ver o histórico todo"}
+          </button>
+        </section>
+
+        {/* Recorte de categoria veio do painel: precisa ficar visivel, senao a
+            lista parece incompleta e a pessoa acha que perdeu lancamento. */}
+        {filtroCategoria && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-honey/30 bg-honey/10 px-4 py-2.5 text-sm">
             <span className="text-honey-deep">
-              Mostrando só
-              {nomeCategoriaFiltrada ? ` ${nomeCategoriaFiltrada}` : " a categoria escolhida"}
-              {filtroMes ? ` em ${rotuloMesCurto(filtroMes)}` : ""}.
+              Mostrando só {nomeCategoriaFiltrada ?? "a categoria escolhida"}.
             </span>
-            <Link href="/transacoes" className="link-honey">Ver todos</Link>
+            <Link href="/transacoes" className="link-honey">Ver todas as categorias</Link>
           </div>
         )}
 
