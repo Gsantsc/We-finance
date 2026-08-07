@@ -8,6 +8,7 @@ import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { formatDateBR } from "@/lib/formato";
 import { dataDeHojeSP, installmentPlanCents, type InstallmentMode } from "@/lib/rules";
 import { SkeletonLinha } from "@/components/Skeleton";
+import Money from "@/components/Money";
 
 type Category = { id: string; name: string; icon: string };
 type Account = { id: string; name: string; entity?: { id: string; name: string } | null };
@@ -277,13 +278,13 @@ export default function TransacoesPage() {
               <p className="text-xs text-sage sm:col-span-3">
                 Vira {parcelas} lancamentos mensais a partir da data:{" "}
                 <strong>
-                  {parcelas}x de {currency.format(previa[0] / 100)}
+                  {parcelas}x de <Money valor={previa[0] / 100} fluxo="neutro" semCor />
                 </strong>
                 {previa[parcelas - 1] !== previa[0] && (
-                  <> (a ultima de {currency.format(previa[parcelas - 1] / 100)})</>
+                  <> (a última de <Money valor={previa[parcelas - 1] / 100} fluxo="neutro" semCor />)</>
                 )}
                 {" — total "}
-                {currency.format(previa.reduce((s, x) => s + x, 0) / 100)}.
+                <Money valor={previa.reduce((s, x) => s + x, 0) / 100} fluxo="neutro" semCor />.
               </p>
             )}
             <button type="submit" disabled={enviando} className="btn-primary sm:col-span-3 disabled:opacity-60">
@@ -333,7 +334,7 @@ export default function TransacoesPage() {
                       t.amount < 0 ? "text-clay" : "text-pine-600"
                     }`}
                   >
-                    {currency.format(t.amount)}
+                    <Money valor={t.amount} fluxo="auto" />
                   </td>
                   <td className="px-4 py-2 text-right">
                     <button onClick={() => startEdit(t)} className="link-honey">

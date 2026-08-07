@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
+import Money from "@/components/Money";
 
 type Entity = { id: string; name: string; type: string };
 type Account = {
@@ -210,7 +211,7 @@ export default function ContasPage() {
                   <td className="px-4 py-2 text-sage">{a.type}</td>
                   <td className="px-4 py-2 text-sage">{a.entity?.name || "-"}</td>
                   <td className="px-4 py-2 text-sage">{a.isManual ? "Manual" : "Pluggy"}</td>
-                  <td className="px-4 py-2 text-right font-medium">{currency.format(a.balance)}</td>
+                  <td className="px-4 py-2 text-right font-medium"><Money valor={a.balance} fluxo="auto" /></td>
                 </tr>
               ))}
               {accounts.length === 0 && (

@@ -6,6 +6,7 @@ import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { parseCSV, parseAmount, parseDateBR } from "@/lib/csv";
+import Money from "@/components/Money";
 
 type Account = { id: string; name: string; entity?: { name: string } | null };
 
@@ -260,7 +261,7 @@ export default function ImportarPage() {
                           <td className={`px-4 py-2 text-right font-semibold tnum ${
                             p.amount == null ? "text-clay" : p.amount < 0 ? "text-clay" : "text-pine-600"
                           }`}>
-                            {p.amount == null ? "inválido" : currency.format(p.amount)}
+                            {p.amount == null ? "inválido" : <Money valor={p.amount} fluxo="auto" />}
                           </td>
                         </tr>
                       ))}

@@ -14,7 +14,9 @@ import ErroBanner from "@/components/ErroBanner";
 import GraficoEvolucao, { type PontoEvolucao } from "@/components/GraficoEvolucao";
 import { Recarregando, SkeletonCards, SkeletonTabela } from "@/components/Skeleton";
 import { getJson, mensagemDeErro } from "@/lib/http";
-import { currency, formatDateBR, nomesMeses, rotuloMesCurto } from "@/lib/formato";
+import { formatDateBR, nomesMeses, rotuloMesCurto } from "@/lib/formato";
+import Money from "@/components/Money";
+import type { Fluxo } from "@/lib/dinheiro";
 import { addMonthKey, mesDeHojeSP } from "@/lib/rules";
 
 type Coluna = {
@@ -77,13 +79,23 @@ function tituloMes(chave: string) {
 // nada somava com nada - nao dava para conferir. Agora sao tres blocos que se
 // somam, cada um com seu subtotal, e a sobra sai da conta dos tres.
 type Linha = { rotulo: string; campo: keyof Coluna; dica: string };
-type Bloco = { titulo: string; linhas: Linha[]; totalCampo: keyof Coluna; totalRotulo: string };
+type Bloco = {
+  titulo: string;
+  linhas: Linha[];
+  totalCampo: keyof Coluna;
+  totalRotulo: string;
+  fluxo: Fluxo;
+  /** Guardado subtrai da sobra, entao leva sinal - mas nao e' perda, e por isso
+   *  nao leva vermelho. Pintar poupanca de vermelho seria mentir sobre ela. */
+  semCor?: boolean;
+};
 
 const BLOCOS: Bloco[] = [
   {
     titulo: "Entrou",
     totalCampo: "entrou",
     totalRotulo: "Total que entrou",
+    fluxo: "entrada",
     linhas: [
       { rotulo: "Salário", campo: "salario", dica: "Lançamentos de entrada com a categoria Salário" },
       { rotulo: "VA", campo: "va", dica: "Entradas numa conta do tipo Vale alimentação" },
@@ -96,6 +108,7 @@ const BLOCOS: Bloco[] = [
     titulo: "Saiu",
     totalCampo: "saiu",
     totalRotulo: "Total que saiu",
+    fluxo: "saida",
     linhas: [
       { rotulo: "Parcelas", campo: "parcelas", dica: "As parcelas que caem neste mês" },
       { rotulo: "Contas fixas", campo: "contasFixas", dica: "As recorrentes ainda não marcadas como pagas" },
@@ -106,18 +119,21 @@ const BLOCOS: Bloco[] = [
     titulo: "Guardado",
     totalCampo: "guardado",
     totalRotulo: "Total guardado",
+    fluxo: "saida",
+    semCor: true,
     linhas: [
       { rotulo: "Aportes em metas", campo: "aportes", dica: "O que você separou para as metas neste mês" },
     ],
   },
 ];
 
-function MetricCard(props: { label: string; value: number; detail?: string; tone?: "good" | "bad" }) {
-  const cor = props.tone === "good" ? "text-pine-600" : props.tone === "bad" ? "text-clay" : "text-ink";
+function MetricCard(props: { label: string; value: number; detail?: string; fluxo?: Fluxo }) {
   return (
     <div className="card p-5">
       <p className="eyebrow">{props.label}</p>
-      <p className={`mt-2 font-serif text-3xl ${cor}`}>{currency.format(props.value)}</p>
+      <p className="mt-2 font-serif text-3xl">
+        <Money valor={props.value} fluxo={props.fluxo ?? "auto"} />
+      </p>
       {props.detail && <p className="mt-1 text-xs text-sage">{props.detail}</p>}
     </div>
   );
@@ -270,7 +286,7 @@ export default function DashboardPage() {
               Nenhuma entrada lançada em {tituloMes(mes).toLowerCase()}.
             </p>
             <p className="mt-1.5 text-sm text-ink/75">
-              Você tem <strong>{currency.format(dados.contas.patrimonio)}</strong> somando os saldos
+              Você tem <strong><Money valor={dados.contas.patrimonio} fluxo="neutro" semCor /></strong> somando os saldos
               das contas, mas saldo é quanto existe <em>hoje</em> — o resumo do mês mostra o que
               entrou e saiu <em>neste mês</em>. Para o salário aparecer aqui, lance-o como entrada.
             </p>
@@ -300,14 +316,14 @@ export default function DashboardPage() {
           <Recarregando ativo={carregando}>
             <div className="space-y-8">
               <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard label="Receitas do mês" value={casal?.receitas ?? 0} detail="Salário + VA + VR + outras entradas" />
-                <MetricCard label="Dívidas do mês" value={casal?.dividas ?? 0} detail="Parcelas + contas fixas em aberto" tone="bad" />
-                <MetricCard label="Investido no mês" value={casal?.investido ?? 0} detail="Entradas em conta de investimento" />
+                <MetricCard label="Receitas do mês" value={casal?.receitas ?? 0} detail="Salário + VA + VR + outras entradas" fluxo="entrada" />
+                <MetricCard label="Dívidas do mês" value={casal?.dividas ?? 0} detail="Parcelas + contas fixas em aberto" fluxo="saida" />
+                <MetricCard label="Investido no mês" value={casal?.investido ?? 0} detail="Entradas em conta de investimento" fluxo="neutro" />
                 <MetricCard
                   label="Sobra"
                   value={casal?.sobra ?? 0}
                   detail="Renda − saídas − contas − aportes"
-                  tone={(casal?.sobra ?? 0) >= 0 ? "good" : "bad"}
+                  fluxo="auto"
                 />
               </section>
 
@@ -349,11 +365,11 @@ export default function DashboardPage() {
                               </td>
                               {pessoas.map((p) => (
                                 <td key={p.key} className="px-4 py-2 text-right tabular-nums">
-                                  {currency.format(p[linha.campo] as number)}
+                                  <Money valor={p[linha.campo] as number} fluxo={bloco.fluxo} semCor={bloco.semCor} />
                                 </td>
                               ))}
                               <td className="px-4 py-2 text-right tabular-nums">
-                                {currency.format((casal?.[linha.campo] as number) ?? 0)}
+                                <Money valor={(casal?.[linha.campo] as number) ?? 0} fluxo={bloco.fluxo} semCor={bloco.semCor} />
                               </td>
                             </tr>
                           ))}
@@ -361,11 +377,11 @@ export default function DashboardPage() {
                             <td className="px-4 py-2 pl-6">{bloco.totalRotulo}</td>
                             {pessoas.map((p) => (
                               <td key={p.key} className="px-4 py-2 text-right tabular-nums">
-                                {currency.format(p[bloco.totalCampo] as number)}
+                                <Money valor={p[bloco.totalCampo] as number} fluxo={bloco.fluxo} semCor={bloco.semCor} />
                               </td>
                             ))}
                             <td className="px-4 py-2 text-right font-semibold tabular-nums">
-                              {currency.format((casal?.[bloco.totalCampo] as number) ?? 0)}
+                              <Money valor={(casal?.[bloco.totalCampo] as number) ?? 0} fluxo={bloco.fluxo} semCor={bloco.semCor} />
                             </td>
                           </tr>
                         </Fragment>
@@ -380,7 +396,7 @@ export default function DashboardPage() {
                         </td>
                         {pessoas.map((p) => (
                           <td key={p.key} className="px-4 py-3 text-right tabular-nums">
-                            {currency.format(p.sobra)}
+                            <Money valor={p.sobra} fluxo="auto" />
                           </td>
                         ))}
                         <td
@@ -388,7 +404,7 @@ export default function DashboardPage() {
                             (casal?.sobra ?? 0) >= 0 ? "text-pine-600" : "text-clay"
                           }`}
                         >
-                          {currency.format(casal?.sobra ?? 0)}
+                          <Money valor={casal?.sobra ?? 0} fluxo="auto" />
                         </td>
                       </tr>
                     </tbody>
@@ -414,7 +430,7 @@ export default function DashboardPage() {
                       <div>
                         <p className="font-medium text-ink">{m.nome}</p>
                         <p className="text-xs text-sage">
-                          {currency.format(m.guardado)} de {currency.format(m.alvo)}
+                          <Money valor={m.guardado} fluxo="neutro" semCor /> de <Money valor={m.alvo} fluxo="neutro" semCor />
                           {m.targetDate ? ` | até ${formatDateBR(m.targetDate)}` : ""}
                         </p>
                         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-pine/10">
@@ -423,15 +439,15 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <p className="text-xs text-sage">Falta</p>
-                        <p className="font-medium tabular-nums">{currency.format(m.restante)}</p>
+                        <p className="font-medium tabular-nums"><Money valor={m.restante} fluxo="neutro" semCor /></p>
                       </div>
                       <div>
                         <p className="text-xs text-sage">Aporte no mês</p>
-                        <p className="font-medium tabular-nums">{currency.format(m.aporteDoMes)}</p>
+                        <p className="font-medium tabular-nums"><Money valor={m.aporteDoMes} fluxo="neutro" semCor /></p>
                       </div>
                       <div>
                         <p className="text-xs text-sage">Planejado/mês</p>
-                        <p className="font-medium tabular-nums">{currency.format(m.planejadoMes)}</p>
+                        <p className="font-medium tabular-nums"><Money valor={m.planejadoMes} fluxo="neutro" semCor /></p>
                       </div>
                     </div>
                   ))}
@@ -449,7 +465,7 @@ export default function DashboardPage() {
                       <div key={c.id ?? c.nome} className="flex items-center gap-3 px-5 py-3">
                         <span className="text-base">{c.icone ?? "*"}</span>
                         <span className="flex-1 truncate text-sm text-ink">{c.nome}</span>
-                        <span className="text-sm font-medium tabular-nums text-ink">{currency.format(c.total)}</span>
+                        <span className="text-sm font-medium tabular-nums text-ink"><Money valor={c.total} fluxo="saida" /></span>
                       </div>
                     ))}
                     {(dados?.categorias ?? []).length === 0 && (
@@ -465,7 +481,7 @@ export default function DashboardPage() {
                       <div key={b.id} className="flex items-center gap-3 px-5 py-3">
                         <span className="flex-1 truncate text-sm text-ink">{b.name}</span>
                         <span className="text-xs text-sage">dia {b.dueDay}</span>
-                        <span className="text-sm font-medium tabular-nums text-ink">{currency.format(b.amount)}</span>
+                        <span className="text-sm font-medium tabular-nums text-ink"><Money valor={b.amount} fluxo="saida" /></span>
                       </div>
                     ))}
                     {(dados?.bills ?? []).length === 0 && (
@@ -499,7 +515,7 @@ export default function DashboardPage() {
                         </p>
                       </div>
                       <span className={`shrink-0 text-sm font-semibold tabular-nums ${t.amount < 0 ? "text-clay" : "text-pine-600"}`}>
-                        {currency.format(t.amount)}
+                        <Money valor={t.amount} fluxo="auto" />
                       </span>
                     </div>
                   ))}

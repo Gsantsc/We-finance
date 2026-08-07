@@ -6,6 +6,8 @@ import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { currency, nomesMeses } from "@/lib/formato";
 import { budgetBarColor } from "@/lib/rules";
+import Money from "@/components/Money";
+import { formatarDinheiro } from "@/lib/dinheiro";
 
 type Entity = { id: string; name: string };
 type Category = { id: string; name: string; icon: string; isIncome?: boolean };
@@ -135,7 +137,7 @@ export default function OrcamentosPage() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-sage">Total do mês</span>
               <span className="font-medium">
-                {currency.format(totalGasto)} de {currency.format(totalOrcado)}
+                <Money valor={totalGasto} fluxo="saida" /> de <Money valor={totalOrcado} fluxo="neutro" semCor />
               </span>
             </div>
             <Barra percent={totalOrcado > 0 ? (totalGasto / totalOrcado) * 100 : 0} />
@@ -214,8 +216,8 @@ export default function OrcamentosPage() {
                 </button>
               </div>
               <div className="mt-3 flex items-baseline justify-between text-sm">
-                <span className="font-medium text-ink">{currency.format(b.gasto)}</span>
-                <span className="text-sage">de {currency.format(b.amount)}</span>
+                <Money valor={b.gasto} fluxo="saida" className="font-medium" />
+                <span className="text-sage">de <Money valor={b.amount} fluxo="neutro" semCor /></span>
               </div>
               <Barra percent={b.percentUsado} />
               <p
@@ -224,8 +226,8 @@ export default function OrcamentosPage() {
                 }`}
               >
                 {b.restante < 0
-                  ? `Estourou em ${currency.format(-b.restante)}`
-                  : `Resta ${currency.format(b.restante)}`}
+                  ? `Estourou em ${formatarDinheiro(b.restante, "neutro")}`
+                  : `Resta ${formatarDinheiro(b.restante, "neutro")}`}
               </p>
             </div>
           ))}

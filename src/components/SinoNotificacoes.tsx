@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Money from "@/components/Money";
 import Link from "next/link";
 import { getJson } from "@/lib/http";
 import { currency } from "@/lib/formato";
@@ -90,7 +91,7 @@ export default function SinoNotificacoes() {
                         </p>
                       </div>
                       <span className="shrink-0 text-sm font-semibold tnum text-ink">
-                        {currency.format(b.amount)}
+                        <Money valor={b.amount} fluxo="saida" />
                       </span>
                     </Link>
                   </li>

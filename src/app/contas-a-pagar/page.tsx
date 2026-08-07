@@ -6,6 +6,7 @@ import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
 import { currency } from "@/lib/formato";
 import { sortBills } from "@/lib/rules";
+import Money from "@/components/Money";
 
 type Entity = { id: string; name: string };
 type Bill = {
@@ -115,7 +116,7 @@ export default function ContasAPagarPage() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-sage">Total do mês</span>
               <span className="font-medium">
-                {currency.format(totalPendente)} pendente de {currency.format(totalMes)}
+                <Money valor={totalPendente} fluxo="saida" /> pendente de <Money valor={totalMes} fluxo="saida" />
               </span>
             </div>
           </div>
@@ -212,7 +213,7 @@ export default function ContasAPagarPage() {
               </div>
 
               <p className="mt-3 font-serif text-2xl text-ink tnum">
-                {currency.format(b.amount)}
+                <Money valor={b.amount} fluxo="saida" />
               </p>
               <p className="text-xs text-sage">
                 Vence dia {b.dueDay}

@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { currency, rotuloMesCurto } from "@/lib/formato";
+import Money from "@/components/Money";
 
 export type PontoEvolucao = {
   month: string;
@@ -235,12 +236,12 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
                   <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.cor }} />
                   {s.nome}
                 </span>
-                <span className="tabular-nums">{currency.format(pontoFoco[s.chave])}</span>
+                <span className="tabular-nums"><Money valor={pontoFoco[s.chave]} fluxo={s.chave === "despesas" ? "saida" : "entrada"} /></span>
               </p>
             ))}
             <p className="mt-1 flex items-center justify-between gap-2 border-t border-pine/10 pt-1 text-ink/75">
               <span>Líquido</span>
-              <span className="tabular-nums">{currency.format(pontoFoco.liquido)}</span>
+              <span className="tabular-nums"><Money valor={pontoFoco.liquido} fluxo="auto" /></span>
             </p>
           </div>
         )}
@@ -264,9 +265,9 @@ export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
               {dados.map((d) => (
                 <tr key={d.month} className="border-t border-pine/8">
                   <td className="py-1.5 pr-3">{rotuloMesCurto(d.month)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{currency.format(d.receitas)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{currency.format(d.despesas)}</td>
-                  <td className="py-1.5 text-right tabular-nums">{currency.format(d.liquido)}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums"><Money valor={d.receitas} fluxo="entrada" /></td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums"><Money valor={d.despesas} fluxo="saida" /></td>
+                  <td className="py-1.5 text-right tabular-nums"><Money valor={d.liquido} fluxo="auto" /></td>
                 </tr>
               ))}
             </tbody>

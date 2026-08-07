@@ -7,6 +7,7 @@ import { getJson, postJson, deleteJson, mensagemDeErro } from "@/lib/http";
 import { currency, formatDateBR } from "@/lib/formato";
 import { SkeletonLinha } from "@/components/Skeleton";
 import { dataDeHojeSP, lerValorBR } from "@/lib/rules";
+import Money from "@/components/Money";
 
 type Entity = { id: string; name: string };
 type Goal = {
@@ -254,23 +255,23 @@ export default function MetasPage() {
               </div>
 
               <p className="mt-3 font-serif text-2xl text-ink tnum">
-                {currency.format(guardado)}
+                <Money valor={guardado} fluxo="neutro" semCor />
               </p>
-              <p className="text-xs text-sage">de {currency.format(g.targetAmount)}</p>
+              <p className="text-xs text-sage">de <Money valor={g.targetAmount} fluxo="neutro" semCor /></p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                 <div>
                   <p className="text-xs text-sage">Falta</p>
-                  <p className="font-semibold text-ink tnum">{currency.format(restante)}</p>
+                  <p className="font-semibold text-ink tnum"><Money valor={restante} fluxo="neutro" semCor /></p>
                 </div>
                 <div>
                   <p className="text-xs text-sage">Aporte no mês</p>
                   <p className="font-semibold text-ink tnum">
-                    {currency.format(p?.contributedThisMonth ?? 0)}
+                    <Money valor={p?.contributedThisMonth ?? 0} fluxo="neutro" semCor />
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-sage">Planejado/mês</p>
-                  <p className="font-semibold text-ink tnum">{currency.format(g.monthlyAmount || 0)}</p>
+                  <p className="font-semibold text-ink tnum"><Money valor={g.monthlyAmount || 0} fluxo="neutro" semCor /></p>
                 </div>
               </div>
 
