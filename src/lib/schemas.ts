@@ -235,6 +235,29 @@ export const importSchema = z.object({
   rows: z.array(importRowSchema).min(1, "nenhuma linha para importar").max(5000, "no máximo 5000 linhas por vez"),
 });
 
+// ---------- Pagamento de uma conta a pagar ----------
+
+export const pagamentoSchema = z.object({
+  id,
+  pago: z.boolean(),
+  // Data do pagamento; ausente = hoje. Só faz sentido quando pago = true.
+  data: data.nullish(),
+});
+
+// Editar/apagar uma parcela: a pessoa precisa dizer se a mudança vale só para
+// aquele mês ou para o resto do parcelamento. Sem escolher, corrigir o valor de
+// um empréstimo exigiria repetir a edição 47 vezes.
+export const escopoParcelaSchema = z.enum(["so_esta", "esta_e_futuras"]);
+
+export const editarLancamentoSchema = z.object({
+  id,
+  escopo: escopoParcelaSchema.optional(),
+  description: nome.optional(),
+  amount: valor.optional(),
+  dueDate: data.optional(),
+  categoryId: id.nullish(),
+});
+
 // ---------- Contas a pagar (bills) ----------
 
 const dia = z.number().int().min(1, "dia de 1 a 31").max(31, "dia de 1 a 31");

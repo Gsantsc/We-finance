@@ -1341,6 +1341,281 @@ export async function projecaoMeses(
   return serie;
 }
 
+// ---------- Contas a pagar ----------
+
+// Materializa as contas fixas do mes como lancamento.
+//
+// A recorrencia (bills) e' o MOLDE; o lancamento e' o FATO. Sem gerar a linha,
+// "paguei o aluguel de agosto" nao existiria como fato - so um last_paid_at que
+// guardava um pagamento e esquecia o historico.
+//
+// IDEMPOTENTE: o indice unico (bill_id, mes) segura a segunda tentativa, entao
+// abrir o mesmo mes duas vezes nao duplica nada. E' por isso que da para chamar
+// isto na leitura da tela sem medo.
+export async function gerarContasFixasDoMes(householdId: string, month: string): Promise<number> {
+  const bills = await sql`
+    SELECT b.*, coalesce(b.account_id, (
+      SELECT a.id FROM accounts a
+      WHERE a.household_id = ${householdId} AND a.archived = false
+      ORDER BY a.created_at ASC LIMIT 1
+    )) AS conta_destino
+    FROM bills b
+    WHERE b.household_id = ${householdId}
+      AND b.ativa = true
+      AND (b.inicio IS NULL OR b.inicio <= ${month})
+      AND (b.fim IS NULL OR b.fim >= ${month})
+  `;
+  if (bills.length === 0) return 0;
+
+  const [ano, mes] = month.split("-").map(Number);
+  const diasNoMes = new Date(ano, mes, 0).getDate();
+  let criadas = 0;
+
+  for (const b of bills) {
+    if (!b.conta_destino) continue; // casa sem conta ainda: nao ha onde lancar
+    // Vencimento dia 31 num mes de 30 cai no ultimo dia, nao vira o mes.
+    const dia = String(Math.min(Number(b.due_day), diasNoMes)).padStart(2, "0");
+    const data = `${month}-${dia}`;
+    const r = await sql`
+      INSERT INTO transactions
+        (id, account_id, category_id, description, type, amount_cents, date, due_date,
+         source, bill_id, is_manual, created_at)
+      VALUES (${newId()}, ${b.conta_destino}, ${b.category_id ?? null}, ${b.name}, 'expense',
+              ${Number(b.amount)}, ${data}, ${data}, 'recurring', ${b.id}, true, ${nowIso()})
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `;
+    if (r.length > 0) criadas++;
+  }
+  return criadas;
+}
+
+export type FiltroContas = {
+  status?: string | null;
+  categoriaId?: string | null;
+  donoId?: string | null;
+};
+
+export async function contasAPagarDoMes(
+  householdId: string,
+  month: string,
+  filtros: FiltroContas = {}
+): Promise<Row> {
+  await gerarContasFixasDoMes(householdId, month);
+
+  const linhas = await sql`
+    SELECT * FROM v_contas_a_pagar
+    WHERE household_id = ${householdId} AND competencia = ${month}
+    ORDER BY vencimento ASC, descricao ASC
+  `;
+
+  const itens = linhas
+    .filter((l) => (filtros.status ? l.status === filtros.status : true))
+    .filter((l) => (filtros.categoriaId ? l.category_id === filtros.categoriaId : true))
+    .filter((l) =>
+      filtros.donoId
+        ? filtros.donoId === "compartilhado"
+          ? l.owner_id === null
+          : l.owner_id === filtros.donoId
+        : true
+    )
+    .map((l) => ({
+      id: l.id,
+      descricao: l.descricao,
+      valor: toReais(Number(l.amount_cents)),
+      vencimento: l.vencimento,
+      pagoEm: l.paid_at,
+      status: l.status as "pago" | "atrasado" | "em_aberto",
+      origem: l.origem as "recorrente" | "emprestimo" | "parcela" | "avulsa",
+      categoria: l.categoria,
+      categoriaIcone: l.categoria_icone,
+      categoriaId: l.category_id,
+      conta: l.conta,
+      dono: l.dono,
+      donoId: l.owner_id,
+      parcela: l.installment_number,
+      parcelaTotal: l.installment_total,
+      groupId: l.installment_group_id,
+      billId: l.bill_id,
+    }));
+
+  // Os totais sao do MES INTEIRO, nao do filtro: quem filtra por "atrasado"
+  // ainda precisa saber quanto e' o mes todo, senao o resumo mente.
+  const todas = linhas;
+  const soma = (f: (l: Row) => boolean) =>
+    toReais(todas.filter(f).reduce((s, l) => s + Number(l.amount_cents), 0));
+
+  return {
+    month,
+    itens,
+    resumo: {
+      total: soma(() => true),
+      pago: soma((l) => l.status === "pago"),
+      emAberto: soma((l) => l.status === "em_aberto"),
+      atrasado: soma((l) => l.status === "atrasado"),
+      quantidade: todas.length,
+    },
+  };
+}
+
+// Marca/desmarca pagamento. Mexer no saldo aqui seria dobrar o efeito: o
+// lancamento ja debitou a conta quando foi criado.
+export async function marcarPagamento(
+  householdId: string,
+  id: string,
+  pago: boolean,
+  data?: string | null
+): Promise<Row> {
+  const [atual] = await sql`
+    SELECT t.id FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.id = ${id} AND a.household_id = ${householdId}
+  `;
+  if (!atual) throw new ApiError("Lançamento não encontrado", 404);
+
+  const quando = pago ? toDateOnly(data ?? dataDeHojeSP()) : null;
+  await sql`UPDATE transactions SET paid_at = ${quando} WHERE id = ${id}`;
+
+  // bills.last_paid_at continua alimentado para o sino de avisos, que ainda le
+  // dali. E' espelho, nao fonte.
+  const [linha] = await sql`SELECT bill_id FROM transactions WHERE id = ${id}`;
+  if (linha?.bill_id) {
+    await sql`UPDATE bills SET last_paid_at = ${quando} WHERE id = ${linha.bill_id}`;
+  }
+  return { id, pagoEm: quando };
+}
+
+// Editar uma parcela: "so esta" ou "esta e as futuras".
+//
+// A escolha existe porque as duas sao legitimas e opostas: corrigir o valor
+// digitado errado num emprestimo de 48x deve valer para as 48; ja um mes em que
+// a fatura veio diferente vale so para aquele. Sem a pergunta, uma das duas
+// exigiria repetir a edicao dezenas de vezes.
+//
+// "Futuras" e' por DATA, nao por numero da parcela: parcela ja paga nao deve ser
+// reescrita, e o que importa e' o que ainda esta por vir.
+export async function editarLancamento(
+  householdId: string,
+  patch: {
+    id: string;
+    escopo?: "so_esta" | "esta_e_futuras";
+    description?: string;
+    amount?: number;
+    dueDate?: string;
+    categoryId?: string | null;
+  }
+): Promise<{ alterados: number }> {
+  const [atual] = await sql`
+    SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.id = ${patch.id} AND a.household_id = ${householdId}
+  `;
+  if (!atual) throw new ApiError("Lançamento não encontrado", 404);
+
+  const emGrupo = Boolean(atual.installment_group_id);
+  const futuras = patch.escopo === "esta_e_futuras" && emGrupo;
+
+  const cents = patch.amount === undefined ? null : toCents(Math.abs(patch.amount));
+  const alvo = futuras
+    ? await sql`SELECT id FROM transactions
+                WHERE installment_group_id = ${atual.installment_group_id}
+                  AND date >= ${atual.date}`
+    : [{ id: atual.id }];
+
+  await inTransaction(async (tx) => {
+    for (const linha of alvo) {
+      await tx`
+        UPDATE transactions SET
+          description = ${patch.description ?? atual.description},
+          amount_cents = ${cents ?? Number(atual.amount_cents)},
+          category_id  = ${patch.categoryId === undefined ? atual.category_id : patch.categoryId},
+          due_date     = ${
+            // O vencimento so se move na linha editada: aplicar a mesma data em
+            // todas empilharia o parcelamento inteiro num mes so.
+            linha.id === atual.id ? (patch.dueDate ? toDateOnly(patch.dueDate) : atual.due_date) : sql`due_date`
+          }
+        WHERE id = ${linha.id}
+      `;
+    }
+    if (futuras && cents !== null) {
+      await tx`UPDATE installment_plans SET installment_cents = ${cents}
+               WHERE group_id = ${atual.installment_group_id}`;
+    }
+  });
+
+  return { alterados: alvo.length };
+}
+
+export async function excluirLancamento(
+  householdId: string,
+  id: string,
+  escopo?: "so_esta" | "esta_e_futuras"
+): Promise<{ removidos: number }> {
+  const [atual] = await sql`
+    SELECT t.* FROM transactions t JOIN accounts a ON a.id = t.account_id
+    WHERE t.id = ${id} AND a.household_id = ${householdId}
+  `;
+  if (!atual) throw new ApiError("Lançamento não encontrado", 404);
+
+  const futuras = escopo === "esta_e_futuras" && Boolean(atual.installment_group_id);
+  const alvo = futuras
+    ? await sql`SELECT id FROM transactions
+                WHERE installment_group_id = ${atual.installment_group_id}
+                  AND date >= ${atual.date}`
+    : [{ id: atual.id }];
+
+  await inTransaction(async (tx) => {
+    for (const linha of alvo) {
+      // Devolve ao saldo o que o lancamento tirou. Parcela nunca mexeu no saldo
+      // (competencia futura), entao so o lancamento avulso precisa do estorno.
+      if (!atual.installment_group_id) {
+        const sinal = atual.type === "expense" ? 1 : -1;
+        await applyBalanceDelta(tx, atual.account_id, sinal * Number(atual.amount_cents));
+      }
+      await tx`DELETE FROM transactions WHERE id = ${linha.id}`;
+    }
+  });
+
+  return { removidos: alvo.length };
+}
+
+// Projecao dos proximos meses: quando as parcelas acabam e quanto pesa ate la.
+export async function projecaoContasAPagar(
+  householdId: string,
+  mesBase: string,
+  meses = 12
+): Promise<Row[]> {
+  const n = Math.min(Math.max(meses, 1), 24);
+  const ultimo = addMonthKey(mesBase, n);
+
+  const [parcelas, bills] = await Promise.all([
+    sql`
+      SELECT substr(t.date, 1, 7) AS mes, sum(t.amount_cents)::bigint AS cents
+      FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE a.household_id = ${householdId} AND t.type = 'expense'
+        AND t.bill_id IS NULL
+        AND substr(t.date, 1, 7) > ${mesBase} AND substr(t.date, 1, 7) <= ${ultimo}
+      GROUP BY 1
+    `,
+    sql`SELECT name, amount, inicio, fim FROM bills
+        WHERE household_id = ${householdId} AND ativa = true`,
+  ]);
+
+  const porMes = new Map(parcelas.map((r) => [r.mes as string, Number(r.cents)]));
+
+  return Array.from({ length: n }, (_, i) => {
+    const m = addMonthKey(mesBase, i + 1);
+    const fixasCents = bills
+      .filter((b) => (!b.inicio || b.inicio <= m) && (!b.fim || b.fim >= m))
+      .reduce((s, b) => s + Number(b.amount), 0);
+    const parcelasCents = porMes.get(m) ?? 0;
+    return {
+      month: m,
+      fixas: toReais(fixasCents),
+      parcelas: toReais(parcelasCents),
+      total: toReais(fixasCents + parcelasCents),
+    };
+  });
+}
+
 // ---------- Patrimonio ----------
 
 // Busca os tres lados do patrimonio e delega a CONTA para calculatePatrimony,

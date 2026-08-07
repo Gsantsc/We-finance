@@ -19,7 +19,7 @@ import SinoNotificacoes from "./SinoNotificacoes";
 const principais = [
   { href: "/dashboard", label: "Painel", desc: "O mês inteiro num lugar: o que entrou, o que saiu e quanto sobra." },
   { href: "/transacoes", label: "Lançamentos", desc: "Cada gasto e cada entrada, um por um." },
-  { href: "/contas-a-pagar", label: "Contas fixas", desc: "O que se repete todo mês: aluguel, luz, internet." },
+  { href: "/contas-a-pagar", label: "Contas a pagar", desc: "Tudo que sai no mês: contas fixas, parcelas e avulsas." },
   { href: "/orcamentos", label: "Orçamento", desc: "Quanto vocês pretendem gastar em cada categoria." },
   { href: "/metas", label: "Metas", desc: "Dinheiro guardado com um objetivo: viagem, reserva, um bem." },
 ];
