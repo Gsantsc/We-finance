@@ -86,6 +86,10 @@ function ContasAPagar() {
   const carregar = useCallback(async (chave: string) => {
     setCarregando(true);
     try {
+      // Materializa as contas fixas do mes ANTES de listar. E' um POST proprio
+      // porque cria dado - o GET da lista so le. Idempotente, entao reabrir o
+      // mesmo mes nao duplica nada.
+      await postJson(`/api/contas-a-pagar/gerar?mes=${chave}`, {});
       setDados(await getJson<Dados>(`/api/contas-a-pagar/lista?mes=${chave}`));
       setErro("");
     } catch (e) {

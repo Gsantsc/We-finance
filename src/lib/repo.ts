@@ -29,6 +29,12 @@ import {
   resumoDoMes,
 } from "./rules";
 import { calculatePatrimony, type PatrimonyBreakdown } from "./patrimonio";
+import {
+  recorrenciaValeNoMes,
+  resumirContas,
+  statusDaConta,
+  vencimentoNoMes,
+} from "./contasAPagar";
 import { ApiError } from "./errors";
 
 export type EntityType = "CASA" | "PESSOAL" | "PJ";
@@ -1367,15 +1373,11 @@ export async function gerarContasFixasDoMes(householdId: string, month: string):
   `;
   if (bills.length === 0) return 0;
 
-  const [ano, mes] = month.split("-").map(Number);
-  const diasNoMes = new Date(ano, mes, 0).getDate();
   let criadas = 0;
 
   for (const b of bills) {
     if (!b.conta_destino) continue; // casa sem conta ainda: nao ha onde lancar
-    // Vencimento dia 31 num mes de 30 cai no ultimo dia, nao vira o mes.
-    const dia = String(Math.min(Number(b.due_day), diasNoMes)).padStart(2, "0");
-    const data = `${month}-${dia}`;
+    const data = vencimentoNoMes(month, Number(b.due_day));
     const r = await sql`
       INSERT INTO transactions
         (id, account_id, category_id, description, type, amount_cents, date, due_date,
@@ -1396,18 +1398,27 @@ export type FiltroContas = {
   donoId?: string | null;
 };
 
+// SO LE. A materializacao das contas fixas e' explicita
+// (gerarContasFixasDoMes), chamada pela rota de geracao - ler uma tela nao pode
+// criar dado como efeito colateral.
 export async function contasAPagarDoMes(
   householdId: string,
   month: string,
   filtros: FiltroContas = {}
 ): Promise<Row> {
-  await gerarContasFixasDoMes(householdId, month);
-
-  const linhas = await sql`
+  const hoje = dataDeHojeSP();
+  const brutas = await sql`
     SELECT * FROM v_contas_a_pagar
     WHERE household_id = ${householdId} AND competencia = ${month}
     ORDER BY vencimento ASC, descricao ASC
   `;
+
+  // O status vem de contasAPagar.ts, testado - nao do banco. Duas derivacoes
+  // para a mesma resposta divergiriam sem ninguem notar.
+  const linhas: Row[] = brutas.map((l) => ({
+    ...l,
+    status: statusDaConta(l.vencimento, l.paid_at, hoje),
+  }));
 
   const itens = linhas
     .filter((l) => (filtros.status ? l.status === filtros.status : true))
