@@ -82,6 +82,7 @@ function ContasAPagar() {
   const [filtroStatus, setFiltroStatus] = useState<"" | Status>("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
   const [filtroDono, setFiltroDono] = useState("");
+  const [semConta, setSemConta] = useState<string[]>([]);
 
   const carregar = useCallback(async (chave: string) => {
     setCarregando(true);
@@ -89,7 +90,11 @@ function ContasAPagar() {
       // Materializa as contas fixas do mes ANTES de listar. E' um POST proprio
       // porque cria dado - o GET da lista so le. Idempotente, entao reabrir o
       // mesmo mes nao duplica nada.
-      await postJson(`/api/contas-a-pagar/gerar?mes=${chave}`, {});
+      const g = await postJson<{ semConta: string[] }>(
+        `/api/contas-a-pagar/gerar?mes=${chave}`,
+        {}
+      );
+      setSemConta(g.semConta ?? []);
       setDados(await getJson<Dados>(`/api/contas-a-pagar/lista?mes=${chave}`));
       setErro("");
     } catch (e) {
@@ -172,6 +177,23 @@ function ContasAPagar() {
         </div>
 
         <ErroBanner mensagem={erro} />
+
+        {/* Conta fixa cadastrada que nao consegue virar lancamento. Sem este
+            aviso ela some da lista e a pessoa acha que perdeu o cadastro. */}
+        {semConta.length > 0 && (
+          <div className="rounded-xl border border-honey/35 bg-honey/10 px-4 py-3 text-sm">
+            <p className="font-medium text-honey-deep">
+              {semConta.length === 1
+                ? "Uma conta fixa não entrou"
+                : `${semConta.length} contas fixas não entraram`}{" "}
+              na lista.
+            </p>
+            <p className="mt-1 text-ink/75">
+              {semConta.join(", ")} — não há conta cadastrada para lançar. Crie uma em{" "}
+              <a href="/contas" className="link-honey">Contas e cartões</a>.
+            </p>
+          </div>
+        )}
 
         <section className="flex flex-wrap items-center gap-2">
           <button onClick={() => setMes((m) => addMonthKey(m, -1))} className="btn-ghost" aria-label="Mês anterior">‹</button>

@@ -1432,7 +1432,10 @@ export async function projecaoMeses(
 // IDEMPOTENTE: o indice unico (bill_id, mes) segura a segunda tentativa, entao
 // abrir o mesmo mes duas vezes nao duplica nada. E' por isso que da para chamar
 // isto na leitura da tela sem medo.
-export async function gerarContasFixasDoMes(householdId: string, month: string): Promise<number> {
+export async function gerarContasFixasDoMes(
+  householdId: string,
+  month: string
+): Promise<{ criadas: number; semConta: string[] }> {
   const bills = await sql`
     SELECT b.*, coalesce(b.account_id, (
       SELECT a.id FROM accounts a
@@ -1445,12 +1448,19 @@ export async function gerarContasFixasDoMes(householdId: string, month: string):
       AND (b.inicio IS NULL OR b.inicio <= ${month})
       AND (b.fim IS NULL OR b.fim >= ${month})
   `;
-  if (bills.length === 0) return 0;
+  if (bills.length === 0) return { criadas: 0, semConta: [] };
 
   let criadas = 0;
+  // Conta fixa sem conta de destino nao vira lancamento. Pular em SILENCIO faz
+  // ela desaparecer da tela sem explicacao - a pessoa cadastrou "Aluguel" e ele
+  // simplesmente nao esta la. Os nomes voltam para a tela avisar.
+  const semConta: string[] = [];
 
   for (const b of bills) {
-    if (!b.conta_destino) continue; // casa sem conta ainda: nao ha onde lancar
+    if (!b.conta_destino) {
+      semConta.push(b.name);
+      continue;
+    }
     const data = vencimentoNoMes(month, Number(b.due_day));
     const r = await sql`
       INSERT INTO transactions
@@ -1463,7 +1473,7 @@ export async function gerarContasFixasDoMes(householdId: string, month: string):
     `;
     if (r.length > 0) criadas++;
   }
-  return criadas;
+  return { criadas, semConta };
 }
 
 export type FiltroContas = {
@@ -1483,7 +1493,12 @@ export async function contasAPagarDoMes(
   const hoje = dataDeHojeSP();
   const brutas = await sql`
     SELECT * FROM v_contas_a_pagar
-    WHERE household_id = ${householdId} AND competencia = ${month}
+    -- Filtra por VENCIMENTO, nao por competencia. A pergunta desta tela e' "o
+    -- que eu tenho que PAGAR neste mes". Hoje os dois campos sao iguais em quase
+    -- tudo, mas existem justamente para poder divergir: a fatura de agosto vence
+    -- em 10/09. Filtrando por competencia, ela sumiria de setembro - o mes em que
+    -- o dinheiro sai de verdade.
+    WHERE household_id = ${householdId} AND substr(vencimento, 1, 7) = ${month}
     ORDER BY vencimento ASC, descricao ASC
   `;
 

@@ -24,6 +24,12 @@ export async function POST(req: NextRequest) {
       gerarContasFixasDoMes(householdId, mes),
       gerarContasFixasDoMes(householdId, addMonthKey(mes, 1)),
     ]);
-    return { criadas: atual + proximo, mes };
+    return {
+      mes,
+      criadas: atual.criadas + proximo.criadas,
+      // Conta fixa que nao pode virar lancamento por falta de conta de destino.
+      // A tela precisa avisar: senao ela some da lista sem explicacao.
+      semConta: atual.semConta,
+    };
   });
 }
