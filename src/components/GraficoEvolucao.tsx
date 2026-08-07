@@ -1,279 +1,307 @@
 "use client";
 
-// Evolucao mes a mes: receitas x despesas.
+// Evolucao mes a mes: entradas, saidas e saldo.
 //
-// Duas series, mesma unidade (R$) e UM eixo y - nunca dois. Duas escalas no
-// mesmo plano inventam uma correlacao que nao existe nos dados.
+// UM eixo y, nunca dois. As tres series estao em reais, entao dividem a mesma
+// escala; duas escalas no mesmo plano inventam uma correlacao que nao existe.
 //
-// As cores passaram no validador de paleta contra a superficie #FBF8F1, mas a
-// separacao para deuteranopia fica em dE 6.3 (faixa-piso 6-8). Isso torna o
-// rotulo direto no fim de cada linha OBRIGATORIO, nao decorativo: e' o encoding
-// secundario que faz a serie ser identificavel sem depender da cor.
+// PROJECAO: os meses futuros vem TRACEJADOS e so contem COMPROMISSO ASSUMIDO
+// (parcelas ja lancadas + contas fixas recorrentes). Nao ha chute de receita -
+// projetar salario exigiria supor que ele se repete, e uma linha inventada num
+// grafico de dinheiro e' pior que uma linha ausente. Por isso a projecao aparece
+// so em Saidas; Entradas e Saldo param no mes atual.
+//
+// As cores passaram no validador contra a superficie #FBF8F1, mas a separacao
+// entre entradas e saidas em deuteranopia fica na faixa-piso (dE 6.3). Por isso
+// a legenda com o nome escrito nao e' enfeite: e' o encoding que nao depende de
+// cor. A tabela no fim garante o mesmo sem hover.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { currency, rotuloMesCurto } from "@/lib/formato";
-import Money from "@/components/Money";
+import { useMemo, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { formatarDinheiro } from "@/lib/dinheiro";
+import { rotuloMesCurto } from "@/lib/formato";
 
 export type PontoEvolucao = {
   month: string;
   receitas: number;
   despesas: number;
   liquido: number;
+  projetado?: boolean;
 };
 
 const SERIES = [
-  { chave: "receitas" as const, nome: "Receitas", cor: "#0F8A5F" },
-  { chave: "despesas" as const, nome: "Despesas", cor: "#B04A2F" },
-];
+  { chave: "receitas", nome: "Entradas", cor: "#0F8A5F" },
+  { chave: "despesas", nome: "Saídas", cor: "#B04A2F" },
+  { chave: "liquido", nome: "Saldo", cor: "#C6892B" },
+] as const;
 
-const ALTURA = 240;
-const PAD = { topo: 16, direita: 96, baixo: 28, esquerda: 56 };
+type ChaveSerie = (typeof SERIES)[number]["chave"];
 
-// 2500 -> "2,5 mil"; 1200000 -> "1,2 mi". Rotulo de eixo precisa ser curto.
+const JANELAS = [3, 6, 12] as const;
+
 function valorCurto(v: number): string {
   const abs = Math.abs(v);
-  if (abs >= 1_000_000) return `${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
-  if (abs >= 1000) return `${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil`;
-  return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}mi`;
+  if (abs >= 1000) return `${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}k`;
+  return String(Math.round(v));
+}
+
+function fluxoDa(chave: ChaveSerie) {
+  return chave === "despesas" ? "saida" : chave === "receitas" ? "entrada" : "auto";
 }
 
 export default function GraficoEvolucao({ dados }: { dados: PontoEvolucao[] }) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const [largura, setLargura] = useState(720);
-  const [ativo, setAtivo] = useState<number | null>(null);
+  const [janela, setJanela] = useState<(typeof JANELAS)[number]>(12);
+  const [ocultas, setOcultas] = useState<Set<ChaveSerie>>(new Set());
 
-  // Serie nova = seleção antiga nao vale mais (ela e' um indice do array velho).
-  useEffect(() => {
-    setAtivo(null);
-  }, [dados]);
+  const { serie, primeiroProjetado, totalReais } = useMemo(() => {
+    const reais = dados.filter((d) => !d.projetado);
+    const projetados = dados.filter((d) => d.projetado);
+    // A janela conta os meses REAIS; a projecao vem inteira, senao trocar para
+    // "3m" esconderia justamente as parcelas que a pessoa quer ver chegando.
+    const recorte = [...reais.slice(-janela), ...projetados];
+    const ultimoReal = recorte.filter((d) => !d.projetado).at(-1);
 
-  // Mede o container em px de verdade, em vez de escalar um viewBox fixo - assim
-  // a espessura das linhas e o tamanho do texto nao mudam com a largura da tela.
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setLargura(Math.max(320, Math.round(entry.contentRect.width)));
+    const serie = recorte.map((d) => ({
+      ...d,
+      rotulo: rotuloMesCurto(d.month),
+      // Duas colunas para a mesma serie: solida no passado, tracejada no futuro.
+      // O ultimo ponto real entra nas duas, senao fica um buraco na emenda.
+      despesasReal: d.projetado ? null : d.despesas,
+      despesasProj: d.projetado || d.month === ultimoReal?.month ? d.despesas : null,
+      receitasReal: d.projetado ? null : d.receitas,
+      liquidoReal: d.projetado ? null : d.liquido,
+    }));
+
+    return { serie, primeiroProjetado: projetados[0]?.month ?? null, totalReais: reais.length };
+  }, [dados, janela]);
+
+  function alternar(chave: ChaveSerie) {
+    setOcultas((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave);
+      else novo.add(chave);
+      return novo;
     });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const g = useMemo(() => {
-    const w = largura;
-    const plotW = Math.max(1, w - PAD.esquerda - PAD.direita);
-    const plotH = ALTURA - PAD.topo - PAD.baixo;
-    const maximo = Math.max(1, ...dados.flatMap((d) => [d.receitas, d.despesas]));
-    // Teto "redondo" para os ticks nao sairem quebrados.
-    const passo = Math.pow(10, Math.floor(Math.log10(maximo))) / 2;
-    const teto = Math.ceil(maximo / passo) * passo;
-
-    const x = (i: number) =>
-      PAD.esquerda + (dados.length <= 1 ? plotW / 2 : (i * plotW) / (dados.length - 1));
-    const y = (v: number) => PAD.topo + plotH - (v / teto) * plotH;
-
-    const linha = (chave: "receitas" | "despesas") =>
-      dados.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d[chave]).toFixed(1)}`).join(" ");
-
-    return { w, plotW, plotH, teto, x, y, linha, ticks: [0, 0.25, 0.5, 0.75, 1] };
-  }, [dados, largura]);
-
-  if (dados.length === 0) {
-    return (
-      <p className="card px-5 py-10 text-center text-sm text-sage">
-        Sem lançamentos para montar a evolução.
-      </p>
-    );
   }
 
-  const ultimo = dados.length - 1;
-  // `ativo` guarda um INDICE, e a serie troca quando o usuario muda de mes. Sem
-  // o clamp, sair de um mes com 12 pontos (indice 11 sob o mouse) para um mes
-  // com 1 ponto deixava dados[11] === undefined e o acesso seguinte derrubava o
-  // dashboard inteiro com TypeError.
-  const foco = Math.min(ativo ?? ultimo, ultimo);
-  const pontoFoco = dados[foco];
-
-  // Rotulos diretos no fim das linhas; separa em 14px se as duas se encostarem.
-  const yRec = g.y(dados[ultimo].receitas);
-  const yDes = g.y(dados[ultimo].despesas);
-  const colidem = Math.abs(yRec - yDes) < 14;
-  const ajuste = colidem ? (yRec <= yDes ? -7 : 7) : 0;
-
-  function indiceDoEvento(clientX: number) {
-    const rect = boxRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const rel = clientX - rect.left - PAD.esquerda;
-    const passo = dados.length <= 1 ? g.plotW : g.plotW / (dados.length - 1);
-    return Math.max(0, Math.min(dados.length - 1, Math.round(rel / passo)));
+  if (totalReais < 2) {
+    return (
+      <div className="card p-5">
+        <h3 className="font-medium text-ink">Evolução</h3>
+        <p className="my-8 text-center text-sm text-sage">
+          Sem dados suficientes — lance pelo menos 2 meses para a linha do tempo fazer sentido.
+        </p>
+      </div>
+    );
   }
 
   return (
     <div className="card p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h3 className="font-medium text-ink">Evolução</h3>
-        <p className="text-xs text-sage">
-          {dados.length === 1
-            ? "Primeiro mês com lançamento - o histórico aparece conforme os meses passam"
-            : `Últimos ${dados.length} meses até o mês selecionado`}
-        </p>
+        <div className="flex items-center gap-0.5 rounded-lg bg-pine/5 p-0.5">
+          {JANELAS.map((j) => (
+            <button
+              key={j}
+              onClick={() => setJanela(j)}
+              aria-pressed={janela === j}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                janela === j ? "bg-pine text-cream" : "text-pine/60 hover:text-pine"
+              }`}
+            >
+              {j}m
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Legenda sempre presente com 2 series: a identidade nunca depende so da cor. */}
-      <ul className="mt-3 flex flex-wrap gap-4">
-        {SERIES.map((s) => (
-          <li key={s.chave} className="flex items-center gap-2 text-xs text-ink/75">
-            <span aria-hidden className="h-0.5 w-4 rounded-full" style={{ backgroundColor: s.cor }} />
-            {s.nome}
-          </li>
-        ))}
+      <ul className="mt-3 flex flex-wrap gap-2">
+        {SERIES.map((s) => {
+          const oculta = ocultas.has(s.chave);
+          return (
+            <li key={s.chave}>
+              <button
+                onClick={() => alternar(s.chave)}
+                aria-pressed={!oculta}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-pine/5 ${
+                  oculta ? "opacity-40" : ""
+                }`}
+              >
+                <span aria-hidden className="h-0.5 w-4 rounded-full" style={{ backgroundColor: s.cor }} />
+                <span className={oculta ? "text-sage line-through" : "text-ink/75"}>{s.nome}</span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
-      {/* O SVG tem largura minima de 320px; em tela mais estreita que isso ele
-          rola DENTRO do card, em vez de empurrar a pagina inteira. */}
-      <div ref={boxRef} className="relative mt-2 w-full overflow-x-auto">
-        <svg
-          width={g.w}
-          height={ALTURA}
-          role="img"
-          aria-label={`Evolução de receitas e despesas em ${dados.length} meses`}
-          tabIndex={0}
-          className="touch-none outline-none focus-visible:ring-2 focus-visible:ring-honey"
-          onPointerMove={(e) => setAtivo(indiceDoEvento(e.clientX))}
-          onPointerLeave={() => setAtivo(null)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") { e.preventDefault(); setAtivo(Math.max(0, foco - 1)); }
-            if (e.key === "ArrowRight") { e.preventDefault(); setAtivo(Math.min(dados.length - 1, foco + 1)); }
-            if (e.key === "Escape") setAtivo(null);
-          }}
-        >
-          {/* Grade: hairline solida, um tom acima da superficie. Nunca tracejada. */}
-          {g.ticks.map((t) => {
-            const yy = PAD.topo + g.plotH - t * g.plotH;
-            return (
-              <g key={t}>
-                <line
-                  x1={PAD.esquerda} x2={g.w - PAD.direita} y1={yy} y2={yy}
-                  stroke="#1C3A31" strokeOpacity={t === 0 ? 0.18 : 0.07} strokeWidth={1}
+      <div className="mt-3 h-64 w-full sm:h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={serie} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+            <CartesianGrid stroke="#1C3A31" strokeOpacity={0.07} vertical={false} />
+            <XAxis
+              dataKey="rotulo"
+              tick={{ fontSize: 11, fill: "#8A9B8E" }}
+              tickLine={false}
+              axisLine={{ stroke: "#1C3A31", strokeOpacity: 0.18 }}
+              minTickGap={10}
+            />
+            <YAxis
+              tickFormatter={valorCurto}
+              tick={{ fontSize: 11, fill: "#8A9B8E" }}
+              tickLine={false}
+              axisLine={false}
+              width={44}
+            />
+            <Tooltip
+              cursor={{ stroke: "#22241F", strokeOpacity: 0.2 }}
+              content={<TooltipRico serie={serie} ocultas={ocultas} />}
+            />
+
+            {primeiroProjetado && (
+              <ReferenceLine
+                x={rotuloMesCurto(primeiroProjetado)}
+                stroke="#1C3A31"
+                strokeOpacity={0.25}
+                strokeDasharray="3 3"
+                label={{ value: "previsto", position: "insideTopRight", fontSize: 10, fill: "#8A9B8E" }}
+              />
+            )}
+
+            {!ocultas.has("receitas") && (
+              <Line
+                type="monotone" dataKey="receitasReal" name="Entradas"
+                stroke="#0F8A5F" strokeWidth={2} dot={false}
+                activeDot={{ r: 4, strokeWidth: 2, stroke: "#FBF8F1" }}
+                connectNulls={false} isAnimationActive={false}
+              />
+            )}
+            {!ocultas.has("despesas") && (
+              <>
+                <Line
+                  type="monotone" dataKey="despesasReal" name="Saídas"
+                  stroke="#B04A2F" strokeWidth={2} dot={false}
+                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#FBF8F1" }}
+                  connectNulls={false} isAnimationActive={false}
                 />
-                <text
-                  x={PAD.esquerda - 8} y={yy + 3} textAnchor="end"
-                  className="fill-sage tabular-nums" fontSize={10}
-                >
-                  {valorCurto(g.teto * t)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Eixo x: no maximo 6 rotulos, para nao virar sopa de letras. */}
-          {dados.map((d, i) => {
-            const cada = Math.ceil(dados.length / 6);
-            if (i % cada !== 0 && i !== ultimo) return null;
-            return (
-              <text
-                key={d.month} x={g.x(i)} y={ALTURA - 10} textAnchor="middle"
-                className="fill-sage" fontSize={10}
-              >
-                {rotuloMesCurto(d.month)}
-              </text>
-            );
-          })}
-
-          {/* Crosshair do ponto em foco */}
-          {ativo !== null && (
-            <line
-              x1={g.x(foco)} x2={g.x(foco)} y1={PAD.topo} y2={PAD.topo + g.plotH}
-              stroke="#22241F" strokeOpacity={0.25} strokeWidth={1}
-            />
-          )}
-
-          {SERIES.map((s) => (
-            <path
-              key={s.chave} d={g.linha(s.chave)} fill="none" stroke={s.cor}
-              strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-            />
-          ))}
-
-          {/* Marcador do ponto em foco: anel de 2px na cor da superficie. */}
-          {SERIES.map((s) => (
-            <circle
-              key={s.chave} cx={g.x(foco)} cy={g.y(pontoFoco[s.chave])} r={4.5}
-              fill={s.cor} stroke="#FBF8F1" strokeWidth={2}
-            />
-          ))}
-
-          {/* Rotulo direto no fim de cada linha - encoding secundario obrigatorio.
-              Ancora no ULTIMO ponto, nao na borda: com poucos meses a linha nao
-              chega na direita e o rotulo ficaria solto longe do dado. */}
-          {SERIES.map((s) => {
-            const base = s.chave === "receitas" ? yRec + ajuste : yDes - ajuste;
-            return (
-              <text
-                key={s.chave} x={Math.min(g.x(ultimo) + 10, g.w - PAD.direita + 10)} y={base + 3}
-                fontSize={11} className="fill-ink" fontWeight={500}
-              >
-                {s.nome}
-              </text>
-            );
-          })}
-        </svg>
-
-        {/* Tooltip: acrescenta leitura, nao e' o unico caminho - os mesmos numeros
-            estao na tabela abaixo. */}
-        {ativo !== null && (
-          <div
-            className="pointer-events-none absolute top-2 z-10 rounded-lg border border-pine/12 bg-cream/95 px-3 py-2 text-xs shadow-card"
-            style={{
-              left: Math.min(Math.max(g.x(foco) - 70, 0), Math.max(0, g.w - 150)),
-              width: 150,
-            }}
-          >
-            <p className="font-medium text-ink">{rotuloMesCurto(pontoFoco.month)}</p>
-            {SERIES.map((s) => (
-              <p key={s.chave} className="mt-1 flex items-center justify-between gap-2 text-ink/75">
-                <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.cor }} />
-                  {s.nome}
-                </span>
-                <span className="tabular-nums"><Money valor={pontoFoco[s.chave]} fluxo={s.chave === "despesas" ? "saida" : "entrada"} /></span>
-              </p>
-            ))}
-            <p className="mt-1 flex items-center justify-between gap-2 border-t border-pine/10 pt-1 text-ink/75">
-              <span>Líquido</span>
-              <span className="tabular-nums"><Money valor={pontoFoco.liquido} fluxo="auto" /></span>
-            </p>
-          </div>
-        )}
+                <Line
+                  type="monotone" dataKey="despesasProj" name="Saídas previstas"
+                  stroke="#B04A2F" strokeWidth={2} strokeDasharray="5 4" dot={false}
+                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#FBF8F1" }}
+                  connectNulls={false} isAnimationActive={false}
+                />
+              </>
+            )}
+            {!ocultas.has("liquido") && (
+              <Line
+                type="monotone" dataKey="liquidoReal" name="Saldo"
+                stroke="#C6892B" strokeWidth={2} dot={false}
+                activeDot={{ r: 4, strokeWidth: 2, stroke: "#FBF8F1" }}
+                connectNulls={false} isAnimationActive={false}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
       </div>
 
-      {/* Gemea em tabela: todo valor do grafico e' alcancavel sem depender de cor
-          nem de hover. */}
       <details className="mt-3">
         <summary className="cursor-pointer text-xs text-sage hover:text-ink">Ver como tabela</summary>
         <div className="mt-2 overflow-x-auto">
-          <table className="w-full min-w-[380px] text-xs">
+          <table className="w-full min-w-[420px] text-xs">
             <thead className="text-left text-sage">
               <tr>
                 <th className="py-1.5 pr-3 font-medium">Mês</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Receitas</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Despesas</th>
-                <th className="py-1.5 text-right font-medium">Líquido</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Entradas</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Saídas</th>
+                <th className="py-1.5 text-right font-medium">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              {dados.map((d) => (
+              {serie.map((d) => (
                 <tr key={d.month} className="border-t border-pine/8">
-                  <td className="py-1.5 pr-3">{rotuloMesCurto(d.month)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums"><Money valor={d.receitas} fluxo="entrada" /></td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums"><Money valor={d.despesas} fluxo="saida" /></td>
-                  <td className="py-1.5 text-right tabular-nums"><Money valor={d.liquido} fluxo="auto" /></td>
+                  <td className="py-1.5 pr-3">
+                    {d.rotulo}
+                    {d.projetado && <span className="ml-1 text-sage">(previsto)</span>}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">
+                    {d.projetado ? "—" : formatarDinheiro(d.receitas, "entrada")}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">
+                    {formatarDinheiro(d.despesas, "saida")}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {d.projetado ? "—" : formatarDinheiro(d.liquido, "auto")}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </details>
+    </div>
+  );
+}
+
+// A pergunta que se faz olhando um grafico de dinheiro nao e' "quanto?", e'
+// "mudou quanto?". Por isso a variacao contra o mes anterior vem junto.
+function TooltipRico({
+  active,
+  label,
+  serie,
+  ocultas,
+}: {
+  active?: boolean;
+  label?: string;
+  serie: (PontoEvolucao & { rotulo: string })[];
+  ocultas: Set<ChaveSerie>;
+}) {
+  if (!active || !label) return null;
+  const i = serie.findIndex((d) => d.rotulo === label);
+  if (i < 0) return null;
+  const ponto = serie[i];
+  const anterior = i > 0 ? serie[i - 1] : null;
+
+  return (
+    <div className="rounded-lg border border-pine/12 bg-cream/95 px-3 py-2 text-xs shadow-card">
+      <p className="font-medium text-ink">
+        {ponto.rotulo}
+        {ponto.projetado && <span className="ml-1 font-normal text-sage">previsto</span>}
+      </p>
+      {SERIES.filter((s) => !ocultas.has(s.chave)).map((s) => {
+        // No mes projetado nao ha receita nem saldo. Mostrar "R$ 0,00" ali
+        // afirmaria que nada vai entrar; o que existe e' ausencia de previsao.
+        if (ponto.projetado && s.chave !== "despesas") return null;
+        const valor = ponto[s.chave];
+        const antes = anterior && !anterior.projetado ? anterior[s.chave] : null;
+        const variacao = antes && antes !== 0 ? ((valor - antes) / Math.abs(antes)) * 100 : null;
+        return (
+          <p key={s.chave} className="mt-1 flex items-center justify-between gap-3 text-ink/75">
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.cor }} />
+              {s.nome}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="tabular-nums">{formatarDinheiro(valor, fluxoDa(s.chave))}</span>
+              {variacao !== null && Math.abs(variacao) >= 0.5 && (
+                <span className={`tabular-nums ${variacao > 0 ? "text-clay" : "text-pine-600"}`}>
+                  {variacao > 0 ? "▲" : "▼"}
+                  {Math.abs(variacao).toFixed(0)}%
+                </span>
+              )}
+            </span>
+          </p>
+        );
+      })}
     </div>
   );
 }

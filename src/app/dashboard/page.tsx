@@ -12,6 +12,7 @@ import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import GraficoEvolucao, { type PontoEvolucao } from "@/components/GraficoEvolucao";
+import GastosPorCategoria from "@/components/GastosPorCategoria";
 import { Recarregando, SkeletonCards, SkeletonTabela } from "@/components/Skeleton";
 import { getJson, mensagemDeErro } from "@/lib/http";
 import { formatDateBR, nomesMeses, rotuloMesCurto } from "@/lib/formato";
@@ -552,21 +553,7 @@ export default function DashboardPage() {
               </section>
 
               <section className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <h2 className="eyebrow">Maiores gastos do mês</h2>
-                  <div className="card divide-y divide-pine/8">
-                    {(dados?.categorias ?? []).map((c) => (
-                      <div key={c.id ?? c.nome} className="flex items-center gap-3 px-5 py-3">
-                        <span className="text-base">{c.icone ?? "*"}</span>
-                        <span className="flex-1 truncate text-sm text-ink">{c.nome}</span>
-                        <span className="text-sm font-medium tabular-nums text-ink"><Money valor={c.total} fluxo="saida" /></span>
-                      </div>
-                    ))}
-                    {(dados?.categorias ?? []).length === 0 && (
-                      <p className="px-5 py-8 text-center text-sm text-sage">Sem gastos neste mês.</p>
-                    )}
-                  </div>
-                </div>
+                <GastosPorCategoria dados={dados?.categorias ?? []} mes={mes} />
 
                 <div className="space-y-3">
                   <h2 className="eyebrow">Contas fixas em aberto</h2>

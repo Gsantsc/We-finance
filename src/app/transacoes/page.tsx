@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import { getJson, postJson, mensagemDeErro } from "@/lib/http";
@@ -42,7 +43,7 @@ const formInicial = () => ({
 
 const PAGINA = 50;
 
-export default function TransacoesPage() {
+function TransacoesLista() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -57,12 +58,23 @@ export default function TransacoesPage() {
   const [toqueiNoModo, setToqueiNoModo] = useState(false);
   const [form, setForm] = useState(formInicial);
 
+  // Filtro vindo do painel: clicar numa categoria do grafico abre esta tela ja
+  // recortada naquele mes e categoria.
+  const params = useSearchParams();
+  const filtroMes = params.get("mes") ?? "";
+  const filtroCategoria = params.get("categoria") ?? "";
+  const qs =
+    (filtroMes ? `&mes=${filtroMes}` : "") +
+    (filtroCategoria ? `&categoryId=${filtroCategoria}` : "");
+  const filtrando = Boolean(filtroMes || filtroCategoria);
+  const nomeCategoriaFiltrada = categories.find((c) => c.id === filtroCategoria)?.name;
+
   // Pagina o historico: carrega uma janela e vai buscando o resto sob demanda,
   // em vez de trazer tudo de uma vez.
   async function load() {
     try {
       const [txRes, accRes, catRes] = await Promise.all([
-        getJson<Transaction[]>(`/api/transacoes?limit=${PAGINA}`),
+        getJson<Transaction[]>(`/api/transacoes?limit=${PAGINA}${qs}`),
         getJson<Account[]>("/api/contas"),
         getJson<Category[]>("/api/categorias"),
       ]);
@@ -82,7 +94,7 @@ export default function TransacoesPage() {
     setCarregandoMais(true);
     try {
       const mais = await getJson<Transaction[]>(
-        `/api/transacoes?limit=${PAGINA}&offset=${transactions.length}`
+        `/api/transacoes?limit=${PAGINA}&offset=${transactions.length}${qs}`
       );
       setTransactions((atual) => [...atual, ...mais]);
       if (mais.length < PAGINA) setFim(true);
@@ -193,6 +205,19 @@ export default function TransacoesPage() {
         </div>
 
         <ErroBanner mensagem={erro} />
+
+        {/* Recorte veio do painel: precisa ficar visivel, senao a lista parece
+            incompleta e a pessoa acha que perdeu lancamento. */}
+        {filtrando && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-honey/30 bg-honey/10 px-4 py-2.5 text-sm">
+            <span className="text-honey-deep">
+              Mostrando só
+              {nomeCategoriaFiltrada ? ` ${nomeCategoriaFiltrada}` : " a categoria escolhida"}
+              {filtroMes ? ` em ${rotuloMesCurto(filtroMes)}` : ""}.
+            </span>
+            <Link href="/transacoes" className="link-honey">Ver todos</Link>
+          </div>
+        )}
 
         {showForm && (
           <form onSubmit={handleSubmit} className="grid gap-3 card p-5 sm:grid-cols-3">
@@ -407,5 +432,14 @@ export default function TransacoesPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function TransacoesPage() {
+  // useSearchParams exige Suspense no App Router.
+  return (
+    <Suspense>
+      <TransacoesLista />
+    </Suspense>
   );
 }

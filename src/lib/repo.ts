@@ -1296,6 +1296,51 @@ export async function createGoalContribution(householdId: string, c: {
   };
 }
 
+// Projecao dos meses FUTUROS: so o que ja e' compromisso assumido.
+//
+// Nao ha chute de receita aqui. Projetar entrada exigiria supor que o salario se
+// repete, e uma linha inventada num grafico de dinheiro e' pior que uma linha
+// ausente. As parcelas ja existem como lancamentos com data futura (o
+// parcelamento gera as N linhas de uma vez); as contas fixas recorrentes nao
+// sao lancamento, entao sao somadas mes a mes.
+export async function projecaoMeses(
+  householdId: string,
+  mesBase: string,
+  quantos = 6
+): Promise<Row[]> {
+  const n = Math.min(Math.max(quantos, 0), 24);
+  if (n === 0) return [];
+
+  const ultimo = addMonthKey(mesBase, n);
+  const [parcelas, bills] = await Promise.all([
+    sql`
+      SELECT month, sum(amount_cents) FILTER (WHERE type = 'expense')::bigint AS saidas
+      FROM v_transaction_scope
+      WHERE household_id = ${householdId} AND month > ${mesBase} AND month <= ${ultimo}
+      GROUP BY month
+    `,
+    sql`SELECT coalesce(sum(amount), 0)::bigint AS cents FROM bills
+        WHERE household_id = ${householdId} AND recurring = true`,
+  ]);
+
+  const porMes = new Map(parcelas.map((r) => [r.month as string, Number(r.saidas ?? 0)]));
+  const fixasCents = Number(bills[0]?.cents ?? 0);
+
+  const serie: Row[] = [];
+  for (let i = 1; i <= n; i++) {
+    const m = addMonthKey(mesBase, i);
+    const saidas = (porMes.get(m) ?? 0) + fixasCents;
+    serie.push({
+      month: m,
+      receitas: 0,
+      despesas: toReais(saidas),
+      liquido: toReais(-saidas),
+      projetado: true,
+    });
+  }
+  return serie;
+}
+
 // ---------- Patrimonio ----------
 
 // Busca os tres lados do patrimonio e delega a CONTA para calculatePatrimony,
@@ -1377,6 +1422,7 @@ export async function monthlyEvolution(householdId: string, month: string, meses
       receitas: toReais(Number(r?.income_cents ?? 0)),
       despesas: toReais(Number(r?.expense_cents ?? 0)),
       liquido: toReais(Number(r?.net_cents ?? 0)),
+      projetado: false,
     });
   }
   return serie;
@@ -1384,7 +1430,7 @@ export async function monthlyEvolution(householdId: string, month: string, meses
 
 // Payload unico do dashboard de um mes. Uma chamada, tudo ja agregado no banco.
 export async function dashboardMonth(householdId: string, month: string): Promise<Row> {
-  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, meses, ultimos, patrimonio] =
+  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, projecao, meses, ultimos, patrimonio] =
     await Promise.all([
       sql`
         SELECT o.*, u.name AS owner_name
@@ -1393,9 +1439,17 @@ export async function dashboardMonth(householdId: string, month: string): Promis
         WHERE o.household_id = ${householdId} AND o.month = ${month}
       `,
       sql`
-        SELECT category_id, category_name, category_icon, owner_id, type, total_cents
+        -- A view quebra por DONO, entao a mesma categoria vem uma vez por
+        -- pessoa. Sem este group by, "Alimentação" aparecia duas vezes na lista
+        -- (e com chave React repetida), cada uma com um pedaco do gasto, em vez
+        -- de uma linha com o total da casa.
+        SELECT category_id,
+               max(category_name) AS category_name,
+               max(category_icon) AS category_icon,
+               sum(total_cents)::bigint AS total_cents
         FROM v_monthly_category_totals
         WHERE household_id = ${householdId} AND month = ${month} AND type = 'expense'
+        GROUP BY category_id
         ORDER BY total_cents DESC
         LIMIT 12
       `,
@@ -1429,7 +1483,8 @@ export async function dashboardMonth(householdId: string, month: string): Promis
         WHERE household_id = ${householdId} AND archived = false
         GROUP BY type
       `,
-      monthlyEvolution(householdId, month),
+      monthlyEvolution(householdId, month, 12),
+      projecaoMeses(householdId, month, 6),
       availableMonths(householdId),
       // Do MES selecionado - a lista fica embaixo do seletor, ignorar o filtro
       // ali seria mostrar lancamento de outro mes sob o rotulo deste.
@@ -1540,7 +1595,7 @@ export async function dashboardMonth(householdId: string, month: string): Promis
     month,
     mesesDisponiveis: meses,
     colunas: visiveis,
-    evolucao,
+    evolucao: [...evolucao, ...projecao],
     categorias: categorias.map((c) => ({
       id: c.category_id,
       nome: c.category_name ?? "Sem categoria",
