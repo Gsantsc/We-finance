@@ -110,7 +110,11 @@ const BLOCOS: Bloco[] = [
       { rotulo: "Salário", campo: "salario", dica: "Lançamentos de entrada com a categoria Salário" },
       { rotulo: "VA", campo: "va", dica: "Entradas numa conta do tipo Vale alimentação" },
       { rotulo: "VR", campo: "vr", dica: "Entradas numa conta do tipo Vale refeição" },
-      { rotulo: "Investimentos", campo: "investido", dica: "Entradas numa conta do tipo Investimento" },
+      {
+        rotulo: "Investimentos",
+        campo: "investido",
+        dica: "Quanto você APORTOU neste mês (não o saldo que já tem)",
+      },
       { rotulo: "Outras entradas", campo: "outrasEntradas", dica: "Todo o resto que entrou no mês" },
     ],
   },
@@ -550,6 +554,19 @@ export default function DashboardPage() {
                     <p className="px-5 py-8 text-center text-sm text-sage">Nenhuma meta cadastrada.</p>
                   )}
                 </div>
+
+                {/* A linha "Investimentos" conta APORTE DO MES (fluxo). Quem tem
+                    saldo investido e nao aportou neste mes ve R$ 0,00 e conclui
+                    que o app perdeu o dinheiro - foi o que aconteceu duas vezes.
+                    O aviso so aparece nesse caso exato. */}
+                {casal?.investido === 0 && (dados?.contas.investimentos ?? 0) > 0 && (
+                  <p className="text-sm text-sage">
+                    A linha <strong>Investimentos</strong> está zerada porque não houve aporte
+                    neste mês. Seu saldo investido de{" "}
+                    <strong><Money valor={dados!.contas.investimentos} fluxo="neutro" semCor /></strong>{" "}
+                    continua inteiro — ele aparece em Patrimônio, mais abaixo.
+                  </p>
+                )}
               </section>
 
               <section className="grid gap-4 lg:grid-cols-2">
