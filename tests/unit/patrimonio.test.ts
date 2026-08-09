@@ -61,7 +61,7 @@ describe("@regression calculatePatrimony", () => {
       ...vazio,
       contas: [conta("Corrente", 50000)],
       parcelamentos: [
-        { groupId: "g", descricao: "Empréstimo BB", parcelaCents: 71500, parcelasRestantes: 47 },
+        { groupId: "g", descricao: "Empréstimo BB", parcelaCents: 71500, parcelasRestantes: 47, saldoDevedorCents: 71500 * 47 },
       ],
     });
     expect(r.liquidoCents).toBe(50000 - 3360500);
@@ -73,7 +73,7 @@ describe("@regression calculatePatrimony", () => {
     const r = calculatePatrimony({
       ...vazio,
       parcelamentos: [
-        { groupId: "g", descricao: "Empréstimo", parcelaCents: 71500, parcelasRestantes: 24 },
+        { groupId: "g", descricao: "Empréstimo", parcelaCents: 71500, parcelasRestantes: 24, saldoDevedorCents: 71500 * 24 },
       ],
     });
     expect(r.passivosCents).toBe(71500 * 24); // 1.716.000
@@ -85,7 +85,7 @@ describe("@regression calculatePatrimony", () => {
     const r = calculatePatrimony({
       ...vazio,
       parcelamentos: [
-        { groupId: "g", descricao: "Quitado", parcelaCents: 50000, parcelasRestantes: 0 },
+        { groupId: "g", descricao: "Quitado", parcelaCents: 50000, parcelasRestantes: 0, saldoDevedorCents: 0 },
       ],
     });
     expect(r.passivosCents).toBe(0);
@@ -95,7 +95,7 @@ describe("@regression calculatePatrimony", () => {
   it("parcelas restantes negativas nao viram credito", () => {
     const r = calculatePatrimony({
       ...vazio,
-      parcelamentos: [{ groupId: "g", descricao: "X", parcelaCents: 1000, parcelasRestantes: -3 }],
+      parcelamentos: [{ groupId: "g", descricao: "X", parcelaCents: 1000, parcelasRestantes: -3, saldoDevedorCents: -3000 }],
     });
     expect(r.passivosCents).toBe(0);
   });
@@ -122,7 +122,7 @@ describe("@regression calculatePatrimony", () => {
   it("detalhamento soma exatamente o total - e' o que permite auditar", () => {
     const r = calculatePatrimony({
       contas: [conta("Corrente", 760000), conta("Tesouro", 3880000, "INVESTIMENTO"), conta("Cartão", -157012, "CARTAO")],
-      parcelamentos: [{ groupId: "g", descricao: "Empréstimo", parcelaCents: 71500, parcelasRestantes: 47 }],
+      parcelamentos: [{ groupId: "g", descricao: "Empréstimo", parcelaCents: 71500, parcelasRestantes: 47, saldoDevedorCents: 71500 * 47 }],
       contasFixas: [{ id: "1", nome: "Aluguel", valorCents: 220000 }],
     });
     expect(r.ativos.reduce((s, i) => s + i.valorCents, 0)).toBe(r.ativosCents);

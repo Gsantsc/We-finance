@@ -1729,6 +1729,79 @@ export async function projecaoContasAPagar(
   });
 }
 
+// O compromisso do mes separado em DUAS NATUREZAS.
+//
+// Somar tudo num "gastos do mes" esconde a pergunta que mais importa para quem
+// esta endividado: quanto disto ACABA, e quando? Um aluguel de 2.200 e uma
+// parcela de 715 pesam igual no mes, mas sao coisas opostas - um e' custo de
+// vida permanente, o outro tem data de saida.
+//
+//   TODO MES  = conta fixa recorrente. Nao acaba sozinha.
+//   PARCELADO = parcelamento e emprestimo. Tem ultima parcela e data de fim.
+export async function compromissosDoMes(householdId: string, month: string): Promise<Row> {
+  const [fixas, parcelamentos] = await Promise.all([
+    sql`
+      SELECT t.id, t.description, t.amount_cents, coalesce(t.due_date, t.date) AS vencimento,
+             t.paid_at, c.name AS categoria, c.icon AS icone, u.name AS dono
+      FROM transactions t
+      JOIN accounts a ON a.id = t.account_id
+      LEFT JOIN entities e ON e.id = a.entity_id
+      LEFT JOIN users u ON u.id = e.owner_id
+      LEFT JOIN categories c ON c.id = t.category_id
+      WHERE a.household_id = ${householdId} AND t.type = 'expense'
+        AND t.bill_id IS NOT NULL AND substr(t.date, 1, 7) = ${month}
+      ORDER BY t.amount_cents DESC
+    `,
+    sql`
+      SELECT t.id, t.description, t.amount_cents, coalesce(t.due_date, t.date) AS vencimento,
+             t.paid_at, t.installment_number, t.installment_total, t.installment_group_id,
+             c.name AS categoria, c.icon AS icone, u.name AS dono,
+             d.last_month, d.parcelas_restantes, d.saldo_devedor_cents
+      FROM transactions t
+      JOIN accounts a ON a.id = t.account_id
+      LEFT JOIN entities e ON e.id = a.entity_id
+      LEFT JOIN users u ON u.id = e.owner_id
+      LEFT JOIN categories c ON c.id = t.category_id
+      LEFT JOIN v_installment_debt d ON d.group_id = t.installment_group_id
+      WHERE a.household_id = ${householdId} AND t.type = 'expense'
+        AND t.bill_id IS NULL AND t.installment_group_id IS NOT NULL
+        AND substr(t.date, 1, 7) = ${month}
+      ORDER BY t.amount_cents DESC
+    `,
+  ]);
+
+  const mapa = (r: Row) => ({
+    id: r.id,
+    descricao: r.description,
+    valor: toReais(Number(r.amount_cents)),
+    vencimento: r.vencimento,
+    pago: Boolean(r.paid_at),
+    categoria: r.categoria,
+    icone: r.icone,
+    dono: r.dono,
+  });
+
+  return {
+    todoMes: {
+      itens: fixas.map(mapa),
+      total: toReais(fixas.reduce((s, r) => s + Number(r.amount_cents), 0)),
+    },
+    parcelado: {
+      itens: parcelamentos.map((r) => ({
+        ...mapa(r),
+        parcela: r.installment_number,
+        parcelaTotal: r.installment_total,
+        terminaEm: r.last_month,
+        parcelasRestantes: Number(r.parcelas_restantes ?? 0),
+        // O que ainda falta pagar deste parcelamento, somando as parcelas
+        // futuras. E' a resposta de "quanto ainda devo disso".
+        faltaPagar: toReais(Number(r.saldo_devedor_cents ?? 0)),
+      })),
+      total: toReais(parcelamentos.reduce((s, r) => s + Number(r.amount_cents), 0)),
+    },
+  };
+}
+
 // ---------- Patrimonio ----------
 
 // Busca os tres lados do patrimonio e delega a CONTA para calculatePatrimony,
@@ -1737,7 +1810,7 @@ export async function patrimonioDaCasa(householdId: string): Promise<PatrimonyBr
   const [contas, parcelamentos, bills] = await Promise.all([
     sql`SELECT id, name, type, balance FROM accounts
         WHERE household_id = ${householdId} AND archived = false`,
-    sql`SELECT group_id, descricao, installment_cents, parcelas_restantes
+    sql`SELECT group_id, descricao, installment_cents, parcelas_restantes, saldo_devedor_cents
         FROM v_installment_debt WHERE household_id = ${householdId}`,
     // So conta fixa AINDA NAO paga neste mes e' compromisso.
     sql`SELECT id, name, amount, last_paid_at FROM bills WHERE household_id = ${householdId}`,
@@ -1757,6 +1830,7 @@ export async function patrimonioDaCasa(householdId: string): Promise<PatrimonyBr
       descricao: p.descricao,
       parcelaCents: Number(p.installment_cents),
       parcelasRestantes: Number(p.parcelas_restantes),
+      saldoDevedorCents: Number(p.saldo_devedor_cents),
     })),
     contasFixas: bills
       .filter((b) => String(b.last_paid_at ?? "").slice(0, 7) !== mesCorrente)
@@ -1818,7 +1892,7 @@ export async function monthlyEvolution(householdId: string, month: string, meses
 
 // Payload unico do dashboard de um mes. Uma chamada, tudo ja agregado no banco.
 export async function dashboardMonth(householdId: string, month: string): Promise<Row> {
-  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, projecao, meses, ultimos, patrimonio, fixasRows] =
+  const [overviewRows, categorias, metasRows, billRows, aporteRows, contas, evolucao, projecao, meses, ultimos, patrimonio, compromissos, fixasRows] =
     await Promise.all([
       sql`
         SELECT o.*, u.name AS owner_name
@@ -1878,6 +1952,7 @@ export async function dashboardMonth(householdId: string, month: string): Promis
       // ali seria mostrar lancamento de outro mes sob o rotulo deste.
       listTransactions(householdId, { month, limit: 8 }),
       patrimonioDaCasa(householdId),
+      compromissosDoMes(householdId, month),
       // Quanto das despesas do mes veio de CONTA FIXA, por dono. E' uma fatia de
       // `despesas`, nao um valor a somar - ver o comentario em resumoDoMes.
       sql`
@@ -2032,6 +2107,7 @@ export async function dashboardMonth(householdId: string, month: string): Promis
     },
     // Patrimonio LIQUIDO com o detalhamento item a item, para o card poder ser
     // auditado sem sair da tela. Em reais na borda, como o resto da API.
+    compromissos,
     patrimonio: {
       ativos: toReais(patrimonio.ativosCents),
       passivos: toReais(patrimonio.passivosCents),

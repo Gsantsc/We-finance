@@ -40,8 +40,17 @@ export type ContaSaldo = {
 export type ParcelamentoAberto = {
   groupId: string;
   descricao: string;
+  /** Valor de referencia da parcela — usado só no rótulo. */
   parcelaCents: number;
   parcelasRestantes: number;
+  /**
+   * SOMA das parcelas que ainda nao venceram.
+   *
+   * Vem somado, nao multiplicado: numa compra dividida com resto na ultima
+   * parcela (33,33 / 33,33 / 33,34) o produto parcela x quantidade erraria por
+   * centavos, e centavo errado em divida vira desconfianca no numero inteiro.
+   */
+  saldoDevedorCents: number;
 };
 
 export type ContaFixaAberta = {
@@ -94,10 +103,11 @@ export function calculatePatrimony(entrada: EntradaPatrimonio): PatrimonyBreakdo
 
   for (const p of entrada.parcelamentos) {
     const restantes = Math.max(0, Math.trunc(p.parcelasRestantes));
-    if (restantes === 0) continue; // parcelamento quitado nao e' passivo
+    const saldo = Math.max(0, Math.trunc(p.saldoDevedorCents));
+    if (restantes === 0 || saldo === 0) continue; // quitado nao e' passivo
     passivos.push({
       rotulo: p.descricao,
-      valorCents: p.parcelaCents * restantes,
+      valorCents: saldo,
       // Sem formatar moeda aqui: esta funcao e pura e nao conhece locale.
       // O valor total do item ja aparece formatado ao lado, na UI.
       detalhe: `${restantes} ${restantes === 1 ? "parcela restante" : "parcelas restantes"}`,

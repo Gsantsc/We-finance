@@ -13,6 +13,7 @@ import NavBar from "@/components/NavBar";
 import ErroBanner from "@/components/ErroBanner";
 import GraficoEvolucao, { type PontoEvolucao } from "@/components/GraficoEvolucao";
 import GastosPorCategoria from "@/components/GastosPorCategoria";
+import CompromissosDoMes, { type Compromissos } from "@/components/CompromissosDoMes";
 import { Recarregando, SkeletonCards, SkeletonTabela } from "@/components/Skeleton";
 import { getJson, mensagemDeErro } from "@/lib/http";
 import { formatDateBR, nomesMeses, rotuloMesCurto } from "@/lib/formato";
@@ -71,6 +72,7 @@ type Dados = {
     itensAtivos: ItemPatrimonio[];
     itensPassivos: ItemPatrimonio[];
   };
+  compromissos: Compromissos;
   bills: { id: string; name: string; amount: number; dueDay: number }[];
   ultimosLancamentos: any[];
 };
@@ -414,17 +416,23 @@ export default function DashboardPage() {
         ) : (
           <Recarregando ativo={carregando}>
             <div className="space-y-8">
-              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard label="Receitas do mês" value={casal?.receitas ?? 0} detail="Salário + VA + VR + outras entradas" fluxo="entrada" />
-                <MetricCard label="Dívidas do mês" value={casal?.dividas ?? 0} detail="Parcelas + contas fixas em aberto" fluxo="saida" />
-                <MetricCard label="Investido no mês" value={casal?.investido ?? 0} detail="Entradas em conta de investimento" fluxo="neutro" />
+              {/* A resposta principal vem primeiro e sozinha. Eram quatro
+                  cartoes concorrendo pela atencao, sendo que "Dívidas do mês"
+                  repetia o que Compromissos e Contas fixas ja diziam - tres
+                  lugares para a mesma pergunta. Ficaram os tres numeros que
+                  fecham a conta: entrou − saiu = sobra. */}
+              <section className="grid gap-4 sm:grid-cols-3">
+                <MetricCard label="Entrou" value={casal?.entrou ?? 0} detail="Tudo que chegou no mês" fluxo="entrada" />
+                <MetricCard label="Saiu" value={casal?.saiu ?? 0} detail="Contas fixas, parcelas e gastos" fluxo="saida" />
                 <MetricCard
                   label="Sobra"
                   value={casal?.sobra ?? 0}
-                  detail="Renda − saídas − contas − aportes"
+                  detail="Entrou − saiu − guardado"
                   fluxo="auto"
                 />
               </section>
+
+              <CompromissosDoMes dados={dados?.compromissos} />
 
               <GraficoEvolucao dados={dados?.evolucao ?? []} />
 
@@ -569,30 +577,15 @@ export default function DashboardPage() {
                 )}
               </section>
 
-              <section className="grid gap-4 lg:grid-cols-2">
-                <GastosPorCategoria dados={dados?.categorias ?? []} mes={mes} />
+              {/* "Contas fixas em aberto" saiu daqui: virou o lado esquerdo de
+                  Compromissos, com vencimento e dono. Manter as duas listas era
+                  obrigar a pessoa a conferir se batiam. */}
+              <GastosPorCategoria dados={dados?.categorias ?? []} mes={mes} />
 
-                <div className="space-y-3">
-                  <h2 className="eyebrow">Contas fixas em aberto</h2>
-                  <div className="card divide-y divide-pine/8">
-                    {(dados?.bills ?? []).map((b) => (
-                      <div key={b.id} className="flex items-center gap-3 px-5 py-3">
-                        <span className="flex-1 truncate text-sm text-ink">{b.name}</span>
-                        <span className="text-xs text-sage">dia {b.dueDay}</span>
-                        <span className="text-sm font-medium tabular-nums text-ink"><Money valor={b.amount} fluxo="saida" /></span>
-                      </div>
-                    ))}
-                    {(dados?.bills ?? []).length === 0 && (
-                      <p className="px-5 py-8 text-center text-sm text-sage">Nada em aberto.</p>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <section className="grid gap-4 sm:grid-cols-2">
-                <CardPatrimonio patrimonio={dados?.patrimonio} />
-                <MetricCard label="Investimentos" value={dados?.contas.investimentos ?? 0} detail="Saldo em contas de investimento" fluxo="neutro" />
-              </section>
+              {/* O card de saldo investido tambem saiu: ele ja aparece como
+                  ativo dentro do detalhamento do patrimonio, e um numero
+                  repetido em dois lugares e' um numero que uma hora diverge. */}
+              <CardPatrimonio patrimonio={dados?.patrimonio} />
 
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
